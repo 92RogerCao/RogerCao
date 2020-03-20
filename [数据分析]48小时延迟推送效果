@@ -1,1 +1,118 @@
 
+select FromUserName , event , CreateTime
+into #10
+from OriginsTableBak.dbo.WXMessageRecordBak 
+where CreateTime >'2019-08-11'  and  CreateTime <'2019-10-11'  and event in  ('subscribe' , 'unsubscribe')
+
+select  openid , CreateTime , endtime ,ROW_NUMBER()over(partition by openid order by endtime desc) as 'rank'
+into #1
+from wxcustomrecord where EndTime <='2019-10-10 10:00:29.603'
+
+
+select * 
+into #2
+from #1 where "rank" = 1
+
+select a.FromUserName,
+sum(case when event = 'subscribe' then 1 else 0 end) as 'subcount',
+sum(case when event = 'unsubscribe' then 1 else 0 end) as 'unsubcount'
+ from #10 as a inner join #2 as b on a.FromUserName = b.Openid
+group by a.FromUserName
+
+- 可以看到大部分人的关注取关次数 只有1次，且关注远大于取关！,关注的人中大部分的新的客户
+
+select a.Subscribe , count(1) from WXFans as a inner join #2 as b on a.OpenId = b.Openid 
+group by a.Subscribe --- 从这段可以看出这部分人的取关率确实达到了10% 左右，但是收到推送当天的取关仅仅1%-2%左右
+
+/*
+通过查看推送机制前后15天的微信关注取关行为，发现推送机制开启后关注人数远比推送之前关注的人多
+（但未关注收不到推送，因此不能说明推送导致了关注，不能看到拉新的效果）
+
+从当时现状来看，基本都是关注1次，占有85% 左右，关注一次取关一次占10%左右 ，其他占5% 左右（反复关注取关的只占15%）
+
+只能重点查看有取关的情况，超过一半都是首次申领341的人 ， 另外这波取关的人这拨人的重复关注率很低（但这批人的基数本就很小）
+
+
+这里没有和客户说明的是没有受到负面影响的新客户其实占了大多数，而推送后关注就取关的的人数本就很少，且这部分人重复关注率很低，
+说明洗掉的是羊毛党，不能说对新用户影响很大
+*/
+
+select a.FromUserName,
+sum(case when event = 'subscribe' then 1 else 0 end) as 'subcount',
+sum(case when event = 'unsubscribe' then 1 else 0 end) as 'unsubcount'
+ from #10 as a inner join #2 as b on a.FromUserName = b.Openid where a.CreateTime >='2019-09-06 00:00:00.000'
+group by a.FromUserName
+
+
+select a.FromUserName  , a.Event , a.CreateTime ,b.CreateTime as '除法时间',b.EndTime, ROW_NUMBER()over(partition by a.fromusername order by a.createtime) as 'rank'
+ from #10 as a inner join #2 as b on a.FromUserName = b.Openid 
+ where FromUserName in  (select FromUserName
+from (select a.FromUserName  , a.Event , a.CreateTime ,b.CreateTime as '除法时间',b.EndTime, ROW_NUMBER()over(partition by a.fromusername order by a.createtime) as 'rank'
+ from #10 as a inner join #2 as b on a.FromUserName = b.Openid )tmp where "rank" >=2)
+ order by FromUserName , CreateTime    
+ 
+ ---重点查看取关的这批人的特征
+ select distinct  a.FromUserName 
+ into #11
+ from #10 as a inner join #2 as b on a.FromUserName = b.Openid 
+ where FromUserName in  (select FromUserName
+from (select a.FromUserName  , a.Event , a.CreateTime ,b.CreateTime as '除法时间',b.EndTime, ROW_NUMBER()over(partition by a.fromusername order by a.createtime) as 'rank'
+ from #10 as a inner join #2 as b on a.FromUserName = b.Openid )tmp where "rank" >=2)
+ drop table #11
+
+ select * 
+ into #11
+ from(
+select a.FromUserName , a.Event , a.CreateTime ,b.CreateTime as '除法时间',b.EndTime, ROW_NUMBER()over(partition by a.fromusername order by a.createtime desc) as rankNum
+ from #10 as a inner join #2 as b on a.FromUserName = b.Openid 
+ where a.[Event]= 'unsubscribe'
+ )c
+ where c.rankNum = 1
+
+
+ select WXCampaignId , count(1) from WXCampaignParticipation as a inner join #11 as b on a.OpenId = b.FromUserName
+ group by WXCampaignId
+ order by WXCampaignId
+ 
+ select count(1) from WXFans as a inner join #11 as b on a.OpenId = b.FromUserName and a.Subscribe = 0
+
+
+ select count(1) from SysUserInfo as a inner join #11 as b on a.OpenId = b.FromUserName and a.XYApplyTime >='2019-08-15'
+ 
+ /* 关注后又取关的人中，超过一半都是首次申领341的人 ， 另外这波取关的人这拨人的重复关注率很低 */
+
+ select *
+ into #21
+ from (select a.FromUserName  , a.CreateTime ,a.Event,b.CreateTime as '触发时间',b.EndTime, row_number()over(partition by FromUserName order by a.createtime desc) as 'rank'
+ from #10 as a inner join #2 as b on a.FromUserName = b.Openid ) as c
+ where c.rank = 1 and c.Event = 'subscribe' and  createtime -  触发时间 <1
+
+
+ select a.XYApplyTime , a.OpenId , b.EndTime
+into #30
+from SysUserInfo as a inner join #1 as b on a.OpenId = b.Openid
+
+ select *  
+ into #20
+from (select (case when XYApplyTime - EndTime <0 and XYApplyTime >='2019-08-15 00:00:00.000' then 1 else 0 end) as 'check' , XYApplyTime , endtime ,openid from #30) temp where "check" = 1
+
+select count(1) from #21 as a inner join #20 as b on a.FromUserName = b.OpenId
+
+------------------ 从这里可以看到 拉新的效果的效果 
+select FromUserName , event , CreateTime
+into #10
+from OriginsTableBak.dbo.WXMessageRecordBak 
+where CreateTime >'2019-08-11'  and  CreateTime <'2019-10-11'  and event in  ('subscribe' , 'unsubscribe')
+
+select  openid , CreateTime , endtime ,ROW_NUMBER()over(partition by openid order by endtime desc) as 'rank'
+into #1
+from wxcustomrecord where EndTime <='2019-10-10 10:00:29.603'
+
+select a.* ,b.createtime as '触发时间'  , b.EndTime
+into #10
+from OriginsTableBak.dbo.WXMessageRecordBak as a inner join #1 as b on a.FromUserName = b.Openid and  a.CreateTime >='2019-09-05' and a.CreateTime < '2019-10-11' 
+
+select a.FromUserName , a.createtime ,a.msgtype ,a.event , a.eventkey , a.sourceid , a.menuid, a."触法时间",a.endtime ,b.ParticipationStatus , b.CreateTime as '申领时间'
+from #10 as a  inner join WXCampaignParticipation as b on a.FromUserName = b.OpenId and b.WXCampaignId = '341'
+order by a.FromUserName , a.CreateTime,a.触发时间
+
