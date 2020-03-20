@@ -1,0 +1,1381 @@
+campinfo_dict = {'raw_data_path':r'',
+            'raw_data_name':'',
+            'templatecol_path':r'',
+            'historyfile_path':r'',
+            'wrongdata_path':r'',
+            'campcode':'',
+            'col_myself':'',
+            'duplicate_daily':r''}
+
+
+col_myself = {'BATCH_NO_ACC':[''] , 'BATCH_NO_LEADS':['']} 
+
+datecol_dict_add = {} 
+
+special_source = {'':['Other' , 'Other']}
+
+customer_other_col = {'#CONTACT_LASTNAME':['N'],
+                      'CONTACT_DATA_SOURCE':['Other'],
+                      'CONTACT_DATA_SUB_SOURCE':['Other'] , 
+                      'CONTACT_FIRSTNAME':[''],
+                      'CONTACT_GENDER':[''],
+                      'CONTACT_EMAIL':[''],
+                      'CONTACT_TYPE':['Personal'],
+                      'CONTACT_STATUS':['Prospect']}
+
+leads_other_col = {'#CONTACT_LASTNAME':['N'],
+                   'CONTACT_FIRSTNAME':[''],
+                   'CONTACT_MOBILE_PHONE':[''],
+                   'CONTACT_PROVINCE':[''],
+                   'LEAD_DATA_SOURCE':['Other'],
+                   'LEAD_DATA_SUB_SOURCE':['Other'],
+                   'CONTACT_GENDER':[''],
+                   'CONTACT_EMAIL':[''],
+                   'CONTACT_TYPE':['Personal'],
+                   'CONTACT_STATUS':['Prospect'],
+                   'LEAD_PURCHASE_TIME':[''] ,
+                   'LEAD_INTERESTED_VEHICLE_MODEL':[''],
+                   'LEAD_COLLECTIONONER_NOTES':[''],
+                   'LEAD_INTERESTED_VEHICLE_BRAND':[''],
+                   'LEAD_INTERESTED_VEHICLE_CLASS':[''],
+                   'CONTACT_CITY_CN':[''],
+                   'CONTACT_DATA_SOURCE':['Other'],
+                   'CONTACT_DATA_SUB_SOURCE':['Other'],
+                   'CAMPAIGN_LEAD_DATA_SOURCE':['Other'],
+                   'CAMPAIGN_LEAD_DATA_SUB_SOURCE':['Other'],
+                   'CAMPAIGN_MEMBER_REGISTRATION_DATE':['']}
+
+
+direct_other_col = {'#CONTACT_LASTNAME':['N'],
+                   'CONTACT_FIRSTNAME':[''],
+                   'CONTACT_MOBILE_PHONE':['N'],
+                   'CONTACT_PROVINCE':[''],
+                   'LEAD_DATA_SOURCE':['Other'],
+                   'LEAD_DATA_SUB_SOURCE':['Other'],
+                   'CONTACT_GENDER':[''],
+                   'CONTACT_EMAIL':[''],
+                   'CONTACT_TYPE':['Personal'],
+                   'CONTACT_STATUS':['Prospect'],
+                   'LEAD_PURCHASE_TIME':[''] ,
+                   'LEAD_INTERESTED_VEHICLE_MODEL':[''],
+                   'LEAD_COLLECTIONONER_NOTES':[''],
+                   'LEAD_INTERESTED_VEHICLE_BRAND':[''],
+                   'LEAD_INTERESTED_VEHICLE_CLASS':[''],
+                   'LEAD_ASSIGNED_TO_DEALER':['Y'],
+                   'LEAD_DESIRED_SERVICE':['buy'],
+                   'DEALER_ND_CODE':[''],
+                   'LEAD_COMMENT':[''],
+                   'CONTACT_CITY_CN':[''],
+                   'CONTACT_DATA_SOURCE':['Other'],
+                   'CONTACT_DATA_SUB_SOURCE':['Other'],
+                   'CAMPAIGN_LEAD_DATA_SOURCE':['Other'],
+                   'CAMPAIGN_LEAD_DATA_SUB_SOURCE':['Other']}
+
+
+suffix = {'时尚型轿车':'Style Sedan'}
+
+
+def adject_space(mydict):
+    temp_dict = {}
+    for key , val in mydict.items():
+        key_new = key.replace(u'\xa0', u' ')
+        temp_dict.update({key_new : val})
+    return temp_dict
+
+
+def gender(x):
+    
+    if x in ['男','先生','Male']:
+        return 'Male'
+    if x in ['女','女士','Female']:
+        return 'Female'
+    else:
+        return ''
+
+def name_clean(x):
+    import re
+    x = str(x)
+    pattern_nospec = r'[^\u4e00-\u9fa5a-zA-Z0-9]'
+    x = re.sub(pattern_nospec , '' , x)
+    
+    
+    pattern_two = '[A-Za-z0-9]'
+    
+    only_chinese = re.sub(pattern_two , '' , x)
+    if len(only_chinese) == 0:
+        if len(x) == 1:
+            return ('N','')
+        elif len(x) == 0:
+            return ('N','')
+        elif len(x) >1:
+            x_text = re.sub('[0-9]' , '' , x)
+            if len(x_text) == 0:
+                return ('N','')
+            else:
+                return (x, '')
+    else:       
+        x = re.sub(pattern_two , '' , x)
+    
+        if len(x) == 1:
+            return (x,'')
+        elif len(x) == 0:
+            return ('N','')
+        elif len(x) >1:
+            return (x[0] , x[1:])
+
+def standard_raw_colname(template_campname_file , col):
+    return template_campname_file.loc[template_campname_file['Cleaned'] == col,'Raw'].values[0]
+
+def get_campcode(camp_name ,singlefileinfo_dict ):
+    import pandas as pd
+    import os
+    
+    campfile_path = os.path.join(singlefileinfo_dict['templatecol_path']  , 'campaigncode&历史.xlsx')
+    campfile = pd.read_excel(campfile_path,sheet_name = 'campaigncode')
+    campcode = campfile.loc[campfile['campaign_name'] == camp_name]['campaign_code'].values[0]
+    
+    return campcode
+
+
+
+def dateclean(data , datecol):
+    import datetime as dt
+    
+    def strmyself(x):
+        
+        if str(x) == 'nan':
+            return ''
+        else:
+            return str(x)[:10]
+        
+    def strptimemyself(x):
+
+        try: 
+            x_new = dt.datetime.strptime(x , '%Y-%m-%d')
+            return x_new
+        except:
+            return ''
+    def transto_date(x):
+        import datetime
+        
+        if type(x) is int:
+    
+            delta=datetime.timedelta(days=x)
+            x_new = datetime.datetime.strptime('1899-12-30','%Y-%m-%d') + delta
+            return x_new
+        else:
+            return x
+    
+    for singledata in datecol:
+        data[singledata] = data.apply(lambda x : transto_date(x[singledata]) , axis = 1)
+    
+        data[singledata] = data.apply(lambda x : strmyself(x[singledata]) , axis = 1)
+    data[datecol] = data[datecol].replace('NaT','')
+    return data
+
+
+
+def Benz_clean(raw_data , kind ,  campinfo_dict):
+    import numpy as np
+    import pandas as pd
+    import os
+    
+    template_campname = pd.read_excel('')
+
+    template_campname = template_campname.loc[template_campname['campcode'] == campinfo_dict['campcode']]
+    
+    
+    final_name_path = os.path.join('')
+    
+    
+    raw_data_col = raw_data.columns.tolist()
+    if kind == 'customerclean':
+        kind_col = pd.read_excel(final_name_path, sheetname = 'customercol')['colname'].tolist()
+        important_cols_all = customer_other_col
+    elif kind == 'directclean':
+        kind_col = pd.read_excel(final_name_path , sheetname = 'directcol')['colname'].tolist()
+        important_cols_all = direct_other_col
+    elif kind == 'leadsclean':
+        important_cols_all = leads_other_col
+        kind_col =  pd.read_excel(final_name_path , sheetname = 'leadcol')['colname'].tolist()
+    else:
+        return None
+    
+
+    template_colname = template_campname.loc[template_campname['campcode'] == campinfo_dict['campcode'] , 'Raw'].values.tolist()
+    raw_data_col_check = raw_data.columns.tolist()
+    
+    check_token_one = [] 
+    for i in template_colname:
+        if i not in raw_data_col_check:
+            print('配置文件中的对照字段与原始文件中的不同？')
+            print(i)
+            check_token_one.append(i)
+            
+    check_token_two = []
+    for check in ['省份','城市']:
+        if (check in raw_data_col_check) and (check not in template_colname):
+            print('原始文件中的字段配置文件中没有？')
+            print(check)
+            check_token_two.append(check)
+    
+    if len(check_token_one) >0 or len(check_token_two) >0:
+        return None
+    
+    
+    print('原始数据的数据量：',raw_data.shape[0])
+    
+    
+    
+    if kind == 'customerclean':
+        
+        adjectlist = ['CONTACT_MOBILE_PHONE' ,'CONTACT_DATA_SOURCE','CONTACT_DATA_SUB_SOURCE']
+    else:
+        adjectlist = ['CONTACT_MOBILE_PHONE' , 'CONTACT_PROVINCE','CONTACT_CITY_CN' ,\
+                      'CONTACT_DATA_SOURCE','CONTACT_DATA_SUB_SOURCE','LEAD_DATA_SOURCE',\
+                      'LEAD_DATA_SUB_SOURCE','CAMPAIGN_LEAD_DATA_SOURCE','CAMPAIGN_LEAD_DATA_SUB_SOURCE']
+        
+    for important_col in adjectlist :
+        print(important_col)
+        if important_col == 'CONTACT_MOBILE_PHONE':
+            
+            raw_colname = standard_raw_colname(template_campname , important_col)
+            raw_data[raw_colname] = raw_data[raw_colname].astype('str')
+            raw_data[raw_colname] = raw_data.apply(lambda x : _clean_mobile_bad(x[raw_colname]) , axis = 1)
+            raw_data , wrong_number = _wrong_drop(raw_data , raw_data_col , raw_colname,campinfo_dict , kind)
+            print('去除错误手机数:',wrong_number)
+            
+            campaigncode_temp = campinfo_dict['campcode'] 
+            raw_data,dup_number = _history_drop(raw_data , campinfo_dict['historyfile_path'] , campaigncode_temp , raw_colname  , campinfo_dict['duplicate_daily'])
+            print('已去除历史重复与自身重复:',dup_number)
+        
+        elif important_col == 'CONTACT_PROVINCE':
+
+            raw_data[standard_raw_colname(template_campname , important_col)] =\
+                        raw_data[standard_raw_colname(template_campname , important_col)].str.replace([''],'')
+
+            raw_data[standard_raw_colname(template_campname , important_col)] = \
+                raw_data.apply(lambda x: _pinyin_yingshe(x[standard_raw_colname(template_campname , important_col)]) ,\
+                                axis = 1)
+                    
+                
+            
+        elif important_col == 'CONTACT_CITY_CN':
+
+            raw_data[standard_raw_colname(template_campname , important_col)] = \
+                raw_data[standard_raw_colname(template_campname , important_col)].str.replace(' ','')
+            
+            
+            raw_data = _city_match(raw_data , standard_raw_colname(template_campname , important_col) ,\
+                                    standard_raw_colname(template_campname , 'CONTACT_PROVINCE'), campinfo_dict)
+
+        
+        elif important_col in ['CONTACT_DATA_SOURCE','LEAD_DATA_SOURCE','CAMPAIGN_LEAD_DATA_SOURCE']:
+            try:
+                source_standard = pd.read_excel(os.path.join(campinfo_dict['templatecol_path']  , '字段标准内容模板.xlsx'), sheetname = 'datasource')
+                source_standard.drop_duplicates(subset = ['字段'] , inplace = True)
+                raw_colname = standard_raw_colname(template_campname , important_col)
+                raw_data[important_col] = raw_data[raw_colname]
+                raw_data = raw_data.merge(source_standard , left_on = important_col , right_on = '字段',how = 'left')
+                raw_data.drop(columns = ['字段'] , inplace = True)
+                raw_data.drop(columns = [important_col] , inplace = True)
+                raw_data.drop(columns = [standard_raw_colname(template_campname , important_col)] , inplace =True)
+                raw_data.rename(columns = {'standard_datasource':standard_raw_colname(template_campname , important_col)} , inplace =True)
+            except IndexError:
+                print('原始数据没有DataSource?')
+                pass
+            
+        elif important_col in ['CONTACT_DATA_SUB_SOURCE','LEAD_DATA_SUB_SOURCE','CAMPAIGN_LEAD_DATA_SUB_SOURCE']:
+            try:
+                source_standard = pd.read_excel(os.path.join(campinfo_dict['templatecol_path']  , '字段标准内容模板.xlsx'), sheetname = 'datasubsource')
+                source_standard.drop_duplicates(subset = ['字段'] , inplace = True)
+                raw_colname = standard_raw_colname(template_campname , important_col)
+                raw_data[important_col] = raw_data[raw_colname]
+                raw_data = raw_data.merge(source_standard , left_on = important_col , right_on = '字段',how = 'left')
+                raw_data.drop(columns = ['字段'] , inplace = True)
+                raw_data.drop(columns = [important_col] , inplace = True)
+                raw_data.drop(columns = [standard_raw_colname(template_campname , important_col)] , inplace =True)
+                raw_data.rename(columns = {'standard_datasubsource':standard_raw_colname(template_campname , important_col)} , inplace =True)
+            except IndexError:
+                print('原始数据没有SubDataSource?')
+                pass
+    
+    clean_data_shape = pd.DataFrame(np.zeros((raw_data.shape[0] , len(kind_col)))  , columns = kind_col)
+    
+    customer_col_myself = campinfo_dict['col_myself']
+    BATCH_NO_ACC_token = _Create_BATCH_NO_LEADS(campinfo_dict['campcode'] , raw_data.shape[0])
+    BATCH_NO_LEADS_token = BATCH_NO_ACC_token
+    
+    customer_col_myself.update({'BATCH_NO_ACC':BATCH_NO_ACC_token , 'BATCH_NO_LEADS': BATCH_NO_LEADS_token})
+    customer_col_myself.update({'CAMPAIGN_CODE':campinfo_dict['campcode'] })
+    
+    
+    template_campname_single = {}
+    for i in template_campname.keys():
+        template_campname_single[i] = template_campname[i]
+    print('剩余手机号码个数:',raw_data.shape[0])
+    
+    template_campname_single_df = pd.DataFrame(template_campname_single , columns = ['Raw','Cleaned'])
+    
+    clean_data_shape , seted_col = _intersect_data(clean_data_shape, raw_data ,template_campname_single_df)
+    if kind == 'leadsclean':
+        clean_data_shape = _restcolset_data(clean_data_shape , seted_col ,customer_col_myself, important_cols_all)
+    if kind == 'customerclean':
+        clean_data_shape = _restcolset_data(clean_data_shape , seted_col ,customer_col_myself, important_cols_all)
+        clean_data_shape.drop(columns = ['BATCH_NO_LEADS'],inplace = True)
+    if kind == 'directclean':
+        clean_data_shape = _restcolset_data(clean_data_shape , seted_col ,customer_col_myself, important_cols_all)
+
+    
+    clean_shape_token = clean_data_shape.shape[0]
+    if campinfo_dict['campcode'] in special_source.keys():
+        
+        clean_data_shape['CONTACT_DATA_SOURCE'] = [special_source[campinfo_dict['campcode']][0]] * clean_shape_token
+        clean_data_shape['CONTACT_DATA_SUB_SOURCE'] = [special_source[campinfo_dict['campcode']][1]] * clean_shape_token
+        
+        if kind == 'leadsclean' or kind == 'directclean':
+            clean_data_shape['LEAD_DATA_SOURCE'] = [special_source[campinfo_dict['campcode']][0]] * clean_shape_token
+            clean_data_shape['LEAD_DATA_SUB_SOURCE'] = [special_source[campinfo_dict['campcode']][1]] * clean_shape_token
+            clean_data_shape['CAMPAIGN_LEAD_DATA_SUB_SOURCE'] = [special_source[campinfo_dict['campcode']][1]] * clean_shape_token
+            clean_data_shape['CAMPAIGN_LEAD_DATA_SOURCE'] = [special_source[campinfo_dict['campcode']][0]] * clean_shape_token
+    else:
+        pass
+    
+    if kind == 'leadsclean' or kind == 'directclean':
+        clean_data_shape['LEAD_COLLECTIONONER_NOTES'] = clean_data_shape['LEAD_COLLECTIONONER_NOTES'].replace('请选择经销商','')
+        
+    if kind == 'directclean':
+        clean_data_shape['DEALER_ND_CODE'] = clean_data_shape['DEALER_ND_CODE'].replace('请选择经销商','')
+    
+    if campinfo_dict['campcode'] in ['L3_2019_208045']:
+        clean_data_shape['CONTACT_PROVINCE'] = ['Guangdong'] * clean_data_shape.shape[0]
+        clean_data_shape['CONTACT_CITY_CN'] = ['广州市'] * clean_data_shape.shape[0]
+    
+    
+        
+    return clean_data_shape
+
+def rawinfo(listnum ):
+    import pandas as pd
+    rawlist = {}
+
+    list = pd.read_excel(r'D:\BENZ 模板\template_file\pylist.xlsx', encoding='gb18030', dtype={'listnum': str,'filename':str,})
+    list.set_index('listnum', inplace=True)
+    rawinfo = list.loc[listnum]
+
+    file = rawinfo['filename']
+    file = file.replace(u'\xa0', u' ')
+    rawlist['file'] = file
+    rawlist['campcode'] = rawinfo['camcode']
+    camp_name = rawinfo['camname']
+    camp_name = camp_name.replace(u'\xa0', u' ')
+    rawlist['camp_name'] = camp_name
+
+    filedate = rawinfo['filedate']
+    rawlist['filedate'] = filedate
+
+    kind = rawinfo['kind']
+    rawlist['kind'] = kind
+
+    return rawlist
+
+def _Create_BATCH_NO_LEADS(campcode, rawdata_volume):
+    import datetime as dt
+    
+    temp_id = "_".join([str(campcode) , str(dt.datetime.today())[:10].replace('-',''),str(rawdata_volume)])
+    
+    return [temp_id]
+
+
+def _wrong_drop(data , raw_data_col , raw_colname,campinfo_dict ,kind ):
+    
+    import os
+    
+    wrong_data = data.loc[data[raw_colname].str.startswith('bad_')].copy(deep = True)
+    
+    true_data = data.loc[~data[raw_colname].str.startswith('bad_')].copy(deep = True)
+    
+    wrong_data = wrong_data[raw_data_col]
+    
+    wrong_data_name = campinfo_dict['raw_data_name'].split('.')[0]
+    
+    
+    wrong_data_name = "".join([wrong_data_name  ,'_wrong.xlsx'])
+    
+    wrong_data.to_excel(os.path.join(campinfo_dict['wrongdata_path'] , wrong_data_name) , index = False)
+    
+    wrong_number = wrong_data.shape[0]
+    
+    return true_data , wrong_number
+
+
+
+def _history_drop(data_all , history_path , campaigncode , raw_mobilecolname , duplicate_path):
+    import os
+    import pandas as pd
+    import datetime as dt
+    import shutil
+    '''
+    先去重再去除错误的数据,这里要返回所有的重复数
+    '''
+    
+    history_allfile = os.listdir(history_path)
+    campaigncode_filename = "".join([campaigncode , '_historyfile','.xlsx'])
+    if campaigncode_filename in history_allfile:
+        pass
+    else:
+        historyfiletoken_path = os.path.join(history_path , 'historymobile_token.xlsx')
+        newcampaignhistory_path = os.path.join(history_path , campaigncode_filename)
+        shutil.copy(historyfiletoken_path , newcampaignhistory_path)
+    
+    
+    data_withonedrop = data_all.drop_duplicates(subset = [raw_mobilecolname] , keep = 'first')
+    data_withnodrop = data_all.drop_duplicates(subset = [raw_mobilecolname] , keep = False)
+    
+    data_withonedrop_list = data_withonedrop[raw_mobilecolname].tolist()
+    data_withnodrop_list = data_withnodrop[raw_mobilecolname].tolist()
+    
+    findduplicate = list(set(data_withonedrop_list) - set(data_withnodrop_list))
+    print('---------------------------------')
+    print(findduplicate)
+    
+    findduplicate_dict = dict()
+    for i in findduplicate:
+        token = str(data_all.loc[data_all[raw_mobilecolname].isin([str(i)])].shape[0]-1)
+        print(token)
+        findduplicate_dict[str(i)] = token
+    
+    
+    data_all.drop_duplicates(subset = [raw_mobilecolname] , inplace = True)
+    
+    historyfile_path = os.path.join(history_path , campaigncode_filename)
+    history_file = pd.read_excel(historyfile_path)
+    
+    history_phone_list = history_file[history_file['campaigncode'] == campaigncode]['mobile'].tolist()
+    
+    data_all[raw_mobilecolname] = data_all[raw_mobilecolname].astype('int64')
+    
+    def check_duplicates(number , history_phone_list):
+        
+        if number in history_phone_list:
+            return 'drop'
+        else:
+            return ''
+
+    data_all['if_drop'] = data_all.apply(lambda x : 
+        check_duplicates(x[raw_mobilecolname] , history_phone_list) , axis = 1)
+    
+    data_all_drop = data_all.loc[data_all['if_drop'] == 'drop'].copy(deep = True)
+        
+    data_all = data_all.loc[data_all['if_drop'] != 'drop']
+    
+    data_tohistory = data_all[[raw_mobilecolname]].copy(deep = True)
+    data_tohistory.rename(columns = {raw_mobilecolname:'mobile'} , inplace = True)
+    data_tohistory['campaigncode'] = campaigncode
+    
+    data_tohistory['cleantime'] = [str(dt.date.today())] * data_tohistory.shape[0]
+    
+    history_file = pd.concat([history_file , data_tohistory], axis = 0)
+    
+    history_file.to_excel(historyfile_path , index = False)
+    time_token = str(dt.datetime.today())[:16].replace("-",'')
+    time_token = time_token.replace(':','')
+    time_token = time_token.replace(' ','')
+    
+    duplicatefilename = "".join([campaigncode ,time_token,'_dup.xlsx'])
+    duplicatefile_path = os.path.join(duplicate_path , duplicatefilename)
+    
+
+
+    duplicate_dropfile = data_withonedrop.loc[data_withonedrop[raw_mobilecolname].isin(findduplicate)].copy(deep = True)
+    
+    try:
+        duplicate_dropfile['kind'] = duplicate_dropfile.apply(lambda x :_check_dup_num(x[raw_mobilecolname] ,\
+                          findduplicate_dict) , axis = 1)
+    except ValueError:
+        pass
+    
+    data_all_drop['kind'] = '该数据与历史数据重复'
+    dropfile_all = pd.concat([duplicate_dropfile , data_all_drop] , axis = 0)
+    
+    dropfile_all.to_excel(duplicatefile_path , index = False)
+    drop_token = dropfile_all.shape[0]
+    return data_all ,drop_token
+
+def _check_dup_num(numcol , check_dict):
+    numtoken = check_dict[str(numcol)]
+    
+    return "该数据与自身文件重复{0}次".format(numtoken)
+
+def _pinyin_yingshe(x):
+    from pypinyin import lazy_pinyin
+    #print('省份的中文与拼音映射')
+
+    if x == '内蒙古' or x == '西藏' or x =='澳门':
+        pinying_dict = {'内蒙古':'Inner Mongolia','澳门':'Macau','西藏':'Tibet'}
+        pinyin_str = pinying_dict[x]
+    else:
+        try:
+            pinyin_list = lazy_pinyin(x ,errors = 'ignore')
+            
+            capitalized_word = pinyin_list.pop(0)
+            capitalized_word = capitalized_word.capitalize()
+            pinyin_list.insert(0 , capitalized_word)
+            pinyin_str = "".join(pinyin_list)
+        except:
+            pinyin_str = ''
+    
+    return pinyin_str
+
+
+
+def _clean_mobile_bad(x):
+    import re
+    import pandas as pd
+
+    if pd.isnull(x):
+        return "bad_手机号空缺"
+    else:
+        try:
+            x = int(x)
+        except ValueError:
+            x =x
+    
+    ret_sub = re.sub(r'(\D)','',str(x)) #替换非数字
+    regex = re.compile(r'(^1[3456789]\d{9}$)|(^86(1[3456789]\d{9}$))|(^01[3456789]\d{9}$)|(^1[3456789]\d{20}$)|(^86(1[3456789]\d{20}$))|(^01[3456789]\d{20}$)')
+    a=regex.search(ret_sub) # 注意search是匹配其中内容
+    if a:
+        str_a = a.group()
+        if len(str_a)==11:
+            return str_a
+        if len(str_a)==12:
+            return str_a[1:]
+        if len(str_a)==13:
+            return str_a[2:]       
+        if len(str_a)==22:
+            return str_a[:11]      
+        if len(str_a)==23:
+            return str_a[1:12]      
+        if len(str_a)== 24:
+            return str_a[2:13]       
+    else:
+        return "".join(["bad","_",str(x)])
+    
+def _intersect_data(cleaned , raw , template_campname):
+    usedata_col = set(cleaned.columns.tolist()) & set(template_campname['Cleaned'].tolist())
+    
+    for i in usedata_col:
+        
+        cleaned[i] = raw[standard_raw_colname(template_campname , i)].tolist()
+        
+    return cleaned , usedata_col
+
+def _restcolset_data(cleaned , seted_col , customer_col_myself ,customer_rest_dict ):
+    restcols = list(set(cleaned.columns.tolist()) - set(seted_col) - set(customer_col_myself.keys()))
+    for restcol in restcols:
+        cleaned[restcol] = customer_rest_dict[restcol] * cleaned.shape[0]
+        
+    for i in list(customer_col_myself.keys()):
+        if type(customer_col_myself[i]) == list :
+            cleaned[i] = customer_col_myself[i] * cleaned.shape[0]
+        elif type(customer_col_myself[i]) == str:
+            cleaned[i] = [customer_col_myself[i]] * cleaned.shape[0]
+    return cleaned 
+
+   
+def data_adjust(data):
+    
+    '''为所有的字段加上;符号'''
+    data_col = data.columns.tolist()
+    
+    data_colnew = []
+    
+    for col in data_col:
+
+        colnew = "".join([col , ";"])
+        data_colnew.append(colnew)
+        data[col] = data[col].astype('str')
+        
+
+        
+        data[col] = data.apply(lambda x : "".join([x[col],";"]) , axis = 1)
+        
+    
+    
+    datacol_dict = dict(zip(data_col , data_colnew))
+    
+    data.rename(columns = datacol_dict , inplace = True)
+    data.replace('nan;' , ';' , inplace = True)
+    data.replace('None;' , ';' , inplace = True)
+    data.replace('NaN;' , ';' , inplace = True)
+    data.replace('NaT;' , ';' , inplace = True)
+    return data
+
+
+
+def standardmodel_clean(data_total , carclass_col,carmodel_col , suffix ,campinfo_dict ):
+    import pandas as pd
+    import re
+    import copy
+    import os
+    '''
+    调试  cleaned     LEAD_INTERESTED_VEHICLE_CLASS    
+    调试  LEAD_INTERESTED_VEHICLE_MODEL    suffix, singlefileinfo_dict
+    carclass_col : 车系字段
+    carmodel_col ：车型字段
+    suffix ： 中文后缀映射dict
+    campinfo_dict ： campname:campaigncode
+    Benz_tool.standardmodel_clean(cleaned ,'LEAD_INTERESTED_VEHICLE_CLASS' ,
+    'LEAD_INTERESTED_VEHICLE_MODEL' ,\
+                    Benz_tool.suffix, singlefileinfo_dict)
+    
+    '''
+    checkfirst = data_total[carmodel_col].unique().tolist()
+    if len(checkfirst) == 1 and (str(checkfirst[0]) == 'nan'  or str(checkfirst[0]) == ''):
+        data_total[carmodel_col] = ['']*data_total.shape[0]
+        
+        return data_total
+    else:
+
+        data_total[carmodel_col] = data_total[carmodel_col].str.replace('塞','赛')
+        data_total[carmodel_col] = data_total[carmodel_col].str.replace('特','德')
+    
+        
+        replaced_list = [ '梅赛德斯-奔驰 ','梅赛德斯-迈巴赫 ' ,'梅赛德斯 ' ,'奔驰 ' , '奔驰','2019款 改款 ', '2019款 ',\
+                         '全新','新一代长轴距', '长轴距','梅赛德斯—','梅赛德斯-']
+        
+        for replaced in replaced_list:
+            data_total[carmodel_col] = data_total[carmodel_col].str.replace(replaced , '')
+        
+        
+        data_total.loc[pd.isnull(data_total[carmodel_col]) , carmodel_col] = ''
+        standard_namePath = os.path.join(campinfo_dict['templatecol_path'] , '字段标准内容模板.xlsx')
+        standardmodel = pd.read_excel(standard_namePath , sheetname = '车型')    
+        
+        
+        def class_modify(x):
+            
+            pattern_one = r'([A-Z]*)-'
+            pattern_two = r'[A-Z0-9a-z]+'
+            x = x.strip()
+            try:
+                patterned = re.match(pattern_one ,x).group(1)
+                return patterned
+            except:
+                patterned_two = re.match(pattern_two , x).group(0)
+                return patterned_two
+
+        try:
+            data_total['template_class'] = data_total.apply(lambda x :class_modify(x[carclass_col]),axis = 1) 
+        except AttributeError:  
+            '''
+            某些原始表单没有车系，这样洗出来的标准字段车系字段一定是空的，但是这里需要用到车系字段，
+            '''
+            data_total['template_class'] = data_total.apply(lambda x :class_modify(x[carmodel_col]),axis = 1) 
+        
+
+        if '' in data_total['template_class'].unique().tolist() :
+            print('有车系没有匹配到预设的pattern，这里没有做处理，通常来说不会跑到')
+        templateclass = data_total['template_class'].unique().tolist()
+        for single in templateclass:
+            
+            data_total_split = data_total.loc[data_total['template_class'] == single]
+            
+            standardmodel_split = standardmodel.loc[standardmodel['车系myself'] == single]
+            
+            if standardmodel_split.shape[0] == 0:
+                print('车系的筛选都没有筛选到,将全部归结为other')
+                shape_temp  = data_total.loc[data_total['template_class'] == single , carmodel_col].shape[0]
+                data_total.loc[data_total['template_class'] == single , carmodel_col] = \
+                        ['Other'] * shape_temp
+            else:
+                single_class_carmodel = data_total_split[carmodel_col].unique().tolist()
+                
+                for single_class_singlecarmodel in single_class_carmodel:
+    
+                    single_class_singlecarmodel_copy = copy.deepcopy(single_class_singlecarmodel)
+                    single_class_singlecarmodel = single_class_singlecarmodel.lstrip()
+                    
+                    single_class_singlecarmodel = single_class_singlecarmodel.replace(single , '',1)
+                    single_class_singlecarmodel = single_class_singlecarmodel.lstrip()
+                    single_class_singlecarmodel_nochinese = re.sub(r'[\u4e00-\u9fa5]' , '' ,single_class_singlecarmodel)
+                    
+                    
+                    if single_class_singlecarmodel_nochinese == single_class_singlecarmodel:
+                        
+                        try:
+                            patlast = '\s[0-9a-zA-Z]+$'
+                            finalcheck = re.search(patlast , single_class_singlecarmodel_nochinese).group()
+                            finalcheck = finalcheck.strip()
+                        except:
+                            finalcheck = single_class_singlecarmodel_nochinese.strip()
+                        
+                        if finalcheck != '4MATIC':
+                            check_onlynum = re.sub('[0-9]', '' , finalcheck)
+                            check_onlyeng = re.sub('[a-zA-Z]' , '',finalcheck)
+                            if len(check_onlynum) == 0 or len(check_onlyeng) == 0:
+                                pass
+                            else:
+                                numget = re.search('[0-9]+' , finalcheck).group()
+                                numget = numget.strip()
+                                finalcheck_new = re.sub(numget , '' , finalcheck)
+                                finalcheck_final = str(finalcheck_new) + str(' ') + str(numget) 
+                                single_class_singlecarmodel_nochinese = finalcheck_final
+                            pass
+                        else:
+                            pass
+                        
+
+                        ifreal = standardmodel_split.loc[\
+                            standardmodel_split['LEAD_INTERESTED_VEHICLE_MODE'].str.contains(\
+                                               single_class_singlecarmodel_nochinese)]['LEAD_INTERESTED_VEHICLE_MODE'].tolist()
+                        
+                        ifreal_new = []
+                        for i in ifreal:
+                            i = i.replace('2019 Mercedes-AMG ' , '') 
+                            i = i.replace('Mercedes-AMG ' , '')
+                            i = i.replace('Mercedes-Benz ' , '')
+                            i = i.replace('Mercedes-Maybach ' , '')
+                            i = i.replace(single , '',1)
+                            for suffix_chinese , suffix_english in suffix.items():
+                                i = re.sub(suffix_chinese , suffix_english , i ,  flags = re.IGNORECASE)
+                                i = i.lstrip()
+                            ifreal_new.append(i)
+                        
+                        if len(ifreal_new) >1:
+                            if_less = ['Sport' , '4MATIC' ]
+                            for i in if_less:
+                                if i not in single_class_singlecarmodel_nochinese:
+                                    ifreal_new = _check_digui(single_class_singlecarmodel_nochinese , [i] , ifreal_new)
+                                else:
+                                    pass
+                            
+                            if len(ifreal_new) ==1 :
+                                
+                                for i in ifreal:
+                                    if ifreal_new[0] in ifreal:
+                                
+                                        data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                                       [i] * data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+
+                            else:
+                                token_one = 0
+                                for index , ifreal_newone in enumerate(ifreal_new):
+                                    if single_class_singlecarmodel_nochinese == ifreal_newone:
+                                        
+                                        token_one +=1
+                                        shape_temp = data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                                        data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                                       [ifreal[index]] * shape_temp        
+                                if token_one == 0:
+                                    shape_temp = data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                                    ifreal_new_temp = copy.deepcopy(ifreal)
+                                    ifreal_new_temp.append("_未匹配(检索出标准车型但是匹配失败)")
+                                    ifreal_new_temp.append(single_class_singlecarmodel_copy)
+                                    
+                                    data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                               ["|".join(ifreal_new_temp)] * shape_temp   
+                                    
+    
+                        elif len(ifreal_new) == 0:
+                            
+                            shape_temp = data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                               
+                            data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                           [single_class_singlecarmodel_copy+"_未匹配(该车系下没有该车型？)"] * shape_temp 
+                                             
+                        elif len(ifreal_new) == 1:
+                            shape_temp = data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                            
+                            if single_class_singlecarmodel_nochinese == ifreal_new[0]:
+                                data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                                       [ifreal[0]] * shape_temp
+
+                            else:
+                                
+                                data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                                       [ifreal[0]] * shape_temp
+                                
+    
+                    
+                    elif single_class_singlecarmodel_nochinese != single_class_singlecarmodel:
+                        print(single_class_singlecarmodel_nochinese)
+                        print(single_class_singlecarmodel)
+                        
+                        if single_class_singlecarmodel_nochinese == '':
+                            '''如果只剩下中文了，就直接返回'''
+                            token = "".join([single_class_singlecarmodel_copy , '_未匹配'])
+                            data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                [token] * data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                            
+                        else:    
+                            try:
+                                pattern_last = '\s[0-9a-zA-Z]+(\S*)$'
+                                singlecarmodel_last = re.search(pattern_last , single_class_singlecarmodel).group(1)
+                                print(singlecarmodel_last)
+                                print(single_class_singlecarmodel)
+                                if singlecarmodel_last == '+四门跑车':
+                                    singlecarmodel_last = '四门跑车'
+                                single_class_singlecarmodel_nochiese = re.sub(singlecarmodel_last , '' , single_class_singlecarmodel)
+                                single_class_singlecarmodel_new = single_class_singlecarmodel_nochiese + ' ' + singlecarmodel_last
+                                single_class_singlecarmodel = copy.deepcopy(single_class_singlecarmodel_new)
+                            except AttributeError:
+                                print('中文后缀没有直接跟在型号之后')
+                                pass
+                            
+                            try:
+                                chinese_token = re.search('\s+(\S*)$',single_class_singlecarmodel).group()
+                                chinese_token = chinese_token.strip()
+                                chinese_temp_token = {}
+                                for chinese in [chinese_token]:
+                                    chinese_temp_token[chinese] = suffix[chinese]
+                                    
+                                for token in chinese_temp_token:   
+                                    single_class_singlecarmodel = single_class_singlecarmodel.replace(token , chinese_temp_token[token])
+                            except:  
+                                    pass
+                            
+                            for replace in suffix.keys():
+                                 single_class_singlecarmodel = single_class_singlecarmodel.replace(replace , suffix[replace])
+                            
+                            
+                            single_class_singlecarmodel = re.sub(r'[\u4e00-\u9fa5]' , '' ,single_class_singlecarmodel)
+                            
+                            single_class_singlecarmodel = single_class_singlecarmodel.lstrip()
+                            
+                            ifreal =\
+                                standardmodel_split.loc[standardmodel_split['LEAD_INTERESTED_VEHICLE_MODE'].str.contains(single_class_singlecarmodel)]['LEAD_INTERESTED_VEHICLE_MODE'].tolist()
+                            
+                            if len(ifreal) == 1:
+                                ifreal_new = ifreal[0]
+                                ifreal_new = ifreal_new.replace(['.....'] , '')
+                                ifreal_new = ifreal_new.replace(single , '',1)
+                                ifreal_new = ifreal_new.lstrip()
+                                
+                                if ifreal_new == single_class_singlecarmodel:
+                                    
+                                    print('将中文字段映射称英文并删除剩余的中文字之后，能够匹配到标准字段',single_class_singlecarmodel_copy)
+                                    data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                                    ifreal * data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                                else:
+                                    
+                                    
+                                    data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                                    ifreal * data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                            elif len(ifreal) == 0:
+                                only_carclass = re.sub(r'[\u4e00-\u9fa5]' , '' ,single_class_singlecarmodel_copy)
+                                only_carclass = only_carclass.strip()
+                                ifreal_onlycarclass = standardmodel_split.loc[standardmodel_split['LEAD_INTERESTED_VEHICLE_MODE'].str.contains(only_carclass)]['LEAD_INTERESTED_VEHICLE_MODE'].tolist()
+                                
+                                if len(ifreal_onlycarclass) == 1:
+    
+                                    data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                        ifreal_onlycarclass * data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                                elif len(ifreal_onlycarclass)>1:
+                                    
+                                    ifreal_onlycarclass.append('_未匹配(返回多款车型)')
+                                    ifreal_onlycarclass.append(single_class_singlecarmodel_copy)
+                                    data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                        ['|'.join(ifreal_onlycarclass)] * data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                                else:
+                                    data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                        [single_class_singlecarmodel_copy+'_未匹配（仅车系也无法匹配）'] * \
+                                                                data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                            
+                            elif len(ifreal)>1:
+                                
+                                shape_temp = data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col].shape[0]
+                                token_two = 0
+                                for index , single_ifreal in enumerate(ifreal):
+                                    
+                                    single_ifreal = single_ifreal.replace('Mercedes-AMG ' , '')
+                                    single_ifreal = single_ifreal.replace('Mercedes-Benz ' , '')
+                                    single_ifreal = single_ifreal.replace('Mercedes-Maybach ' , '')
+                                    single_ifreal = single_ifreal.replace(single , '',1)
+                                    single_ifreal = single_ifreal.lstrip()
+                                    
+                                    if single_ifreal == single_class_singlecarmodel:
+                                        token_two +=1
+                                        
+                                        data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                            shape_temp * [ifreal[index]]
+                                             
+                                if token_two == 0:     
+                                    if_less = ['Sport' , '4MATIC']
+                                    for i in if_less:
+                                        if i not in single_class_singlecarmodel:
+                                            ifreal = _check_digui(single_class_singlecarmodel , [i] , ifreal)
+                                        else:
+                                            pass
+                        
+                                    
+                                    if len(ifreal) == 1:
+                                        data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                            ifreal* shape_temp
+                                    else:
+                                        ifreal.append('_未匹配(映射英文后还无法唯一匹配)')
+                                        ifreal.append(single_class_singlecarmodel)
+                                        
+                                        data_total.loc[data_total[carmodel_col] == single_class_singlecarmodel_copy , carmodel_col]= \
+                                                ["|".join(ifreal)]* shape_temp
+                                          
+        data_total.drop(columns = ['template_class'] , inplace = True)
+        return data_total
+
+
+def purchasetime_match(data , col , campinfo_dict):
+    import pandas as pd
+    import os
+    if len(data[col].unique().tolist()) == 1 and (data[col].unique().tolist()[0] == 'nan' or data[col].unique().tolist()[0] == ''):
+        data[col] = ['']*data.shape[0]
+        return data
+    else:
+        standard_path = os.path.join(campinfo_dict['templatecol_path'] , '字段标准内容模板.xlsx')
+        standard = pd.read_excel(standard_path , sheetname = 'purchasetime')
+        data = data.merge(standard , left_on = col ,right_on = '字段' , how = 'left' )
+        
+        data[col] = data['standard_purchasetime']
+        
+        data.drop(columns = ['字段','standard_purchasetime'] , inplace = True)
+        
+        print('预计购车时间')
+        print(data[col].unique())
+    
+        return data
+
+def brand_class_match(data , col , campinfo_dict,kind = 'standard_brand' ):
+    import pandas as pd
+    import os
+
+    standard_path = ''
+    if kind == 'standard_brand':
+        standard = pd.read_excel(standard_path , sheetname = 'brand')
+        rawclass_list = data[col].unique().tolist()
+        if len(rawclass_list) == 1 and (str(rawclass_list[0]) == 'nan'  or str(rawclass_list[0]) == ''):
+            data[col] = [''] * data.shape[0]
+            return data
+        else:
+            data = data.merge(standard , left_on = col ,right_on = '字段' , how = 'left' )
+            data.drop(columns = ['字段'],inplace =True)
+            data.drop(columns = [col] , inplace = True)
+            data.rename(columns = {'standard_brand':col} , inplace = True)
+            
+            return data
+        
+    elif kind == 'standard_class':
+        standard = pd.read_excel(standard_path , sheetname = 'class')
+        rawclass_list = data[col].unique().tolist()
+        if len(rawclass_list) == 1 and (str(rawclass_list[0]) == 'nan'  or str(rawclass_list[0]) == ''):
+            data[col] = [''] * data.shape[0]
+            return data
+        else:
+            
+            for rawclass in rawclass_list:
+                standardalllist = standard.loc[standard['standard_class'].str.contains(rawclass)]['standard_class'].tolist()
+                
+                if len(standardalllist) == 1:
+                    data.loc[data[col] == rawclass,col] = standardalllist * data.loc[data[col] == rawclass,col].shape[0]
+                elif len(standardalllist) == 0:
+                    
+                    tempname = "".join([str(rawclass),'_未匹配'])
+                    data.loc[data[col] == rawclass,col] = [tempname] * data.loc[data[col] == rawclass,col].shape[0]
+                elif len(standardalllist)>1:
+                    standardalllist.append("_未匹配")
+                    standardalllist.append(str(rawclass))
+                    tempname = "|".join(standardalllist)
+                    data.loc[data[col] == rawclass,col] = [tempname] * data.loc[data[col] == rawclass,col].shape[0]
+                
+        return data
+
+
+def _province_match(data , province_col,campinfo_dict):
+    import os
+    import pandas as pd
+    
+    standard_province_path = ''
+
+    standard_pro = pd.read_excel(standard_province_path , sheetname = 'province')
+    
+    data = data.merge(standard_pro , left_on = province_col ,right_on = '字段' , how = 'left' )
+    notmatchedlist = data.loc[pd.isnull(data['字段'])][province_col].tolist()
+    if len(notmatchedlist) == 0:
+        print('没有未匹配到的 省份 标准字段')
+    notmatchedlist = list(set(notmatchedlist))
+    for motmatched in notmatchedlist:
+    
+        motmatched_new = "".join([motmatched,"_省份未匹配"])
+        print(motmatched_new)
+        data.loc[data[province_col] == motmatched,province_col] = [motmatched_new] * data.loc[data[province_col] == motmatched].shape[0]
+    
+    data.drop(columns = ['字段'] , inplace = True)
+    return data
+    
+def _check_digui(single_class_singlecarmodel_nochinese , lesslist , if_reallsit):
+    import copy
+    if len(lesslist) ==0:
+        
+        return if_reallsit
+    else:
+        if_reallsit_copy = copy.deepcopy(if_reallsit)
+        lessone = lesslist.pop()
+        if lessone not in single_class_singlecarmodel_nochinese:
+            for j in if_reallsit:
+                if lessone  in j:
+                    if_reallsit_copy.remove(j)
+                    print(if_reallsit_copy)
+        return _check_digui(single_class_singlecarmodel_nochinese , lesslist , if_reallsit_copy)  
+
+def _city_match(data , city_col ,province_col,campinfo_dict):
+    import pandas as pd
+    import os
+    import copy
+    
+    '''    
+    Benz_tool.city_match(cleaned , 'CONTACT_CITY_CN' ,'CONTACT_PROVINCE', singlefileinfo_dict)
+    '''              
+
+    standard_city_path = os.path.join(campinfo_dict['templatecol_path'], '字段标准内容模板.xlsx')
+
+    standard_city = pd.read_excel(standard_city_path , sheetname = 'city')
+    
+    data = data.merge(standard_city , left_on = city_col ,right_on = 'standard_city' , how = 'left' )
+    notmatchedlist = data.loc[pd.isnull(data['standard_city'])][city_col].tolist()
+    
+    if len(notmatchedlist) == 0:
+        print('没有未匹配到的 城市 标准字段')
+    else:
+        notmatchedlist = list(set(notmatchedlist))
+        notmatched = notmatchedlist[0]
+        for notmatched_index,notmatched in enumerate(notmatchedlist):
+            notmatched_copy = copy.deepcopy(notmatched)
+            notmatched = notmatched.replace([],'')
+            
+            search_all = standard_city.loc[standard_city['standard_city'].str.contains(notmatched)]['standard_city'].tolist()
+            if len(search_all) ==1:
+                data.loc[data[city_col] == notmatched_copy,city_col]  = search_all * data.loc[data[city_col] == notmatched_copy,city_col].shape[0]
+
+            elif len(search_all) >1:
+                if notmatched == '':
+                    data.loc[data[city_col] == notmatched_copy,city_col]  = [''] * data.loc[data[city_col] == notmatched_copy,city_col].shape[0]
+                else:   
+                    try:
+                        notmatched_province = data.loc[data[city_col] == notmatched_copy,province_col].unique().tolist()[0]
+                    except:
+                        notmatched_province = ''
+                
+                
+                    search_again_test = _special_citymatch(notmatched , notmatched_province)
+
+                
+                    if search_again_test !='':
+                        search_token = search_again_test
+                    else:
+                        search_all.append('_未匹配')
+                        search_all.append(notmatched_copy)
+                        search_token = "|".join(search_all)
+                    data.loc[data[city_col] == notmatched_copy,city_col]  = [search_token] * data.loc[data[city_col] == notmatched_copy,city_col].shape[0]
+            elif len(search_all) ==0:
+                search_token = notmatched_copy + '_未匹配'
+                print(search_token)
+                
+                data.loc[data[city_col] == notmatched_copy,city_col]  = [search_token] * data.loc[data[city_col] == notmatched_copy,city_col].shape[0]
+                
+    data.drop(columns = 'standard_city' , inplace = True)
+    return data
+    
+
+def _special_citymatch(notmatched , notmatched_province):
+    if notmatched == '苏州' and notmatched_province == 'Jiangsu':
+        return '苏州市'
+    elif notmatched == '东城' and notmatched_province == 'Guangdong':
+        return '东莞市'
+    elif notmatched == '鞍山' and notmatched_province == 'Liaoning':
+        return '鞍山市'
+    elif notmatched == '鞍山' and notmatched_province == 'Anhui':
+        return '马鞍山市'
+    elif notmatched == '眉山' and notmatched_province == 'Sichuan':
+        return '眉山市'
+    elif notmatched == '朝阳' and notmatched_province == 'Liaoning':
+        return '朝阳市'
+    
+    else:
+        return ''
+
+
+def direct_dealercode(data,singlefileinfo_dict , dealerlist):
+    import os
+    import pandas as pd
+
+    standarddealer_listpath = os.path.join(singlefileinfo_dict['templatecol_path'] , '字段标准内容模板.xlsx')
+    standarddealer = pd.read_excel(standarddealer_listpath , sheetname = 'dealercode')
+    
+    data = data.merge(standarddealer , left_on = dealerlist[0] , right_on = '字段', how = 'left')
+    
+    for i in dealerlist:
+        data[i] = data['standard_dealercode']
+    data.drop(columns = ['字段' , 'standard_dealercode'],inplace =True)
+    return data
+
+
+
+def brand_class_match_model(data , brandcol_x,classcol_x , modelcol_x , standard_brand ,if_notuse_model = False):
+    
+    import re
+    import copy
+    
+    
+    if modelcol_x in ['','NaN','None','nan','未' , 'Other'] or if_notuse_model == True:
+        '''
+        说明没有车型
+        '''
+        modelcol_x = modelcol_x.replace([],'')
+        if classcol_x in ['','NaN','None','nan']:
+            '''
+            说明没有车系
+            '''
+            if brandcol_x in ['','NaN','None','nan']:
+                '''
+                说明没有车品牌
+                '''
+                return ('' , '' ,modelcol_x)
+            else:
+                try:
+                    value = standard_brand.loc[standard_brand['字段'] == brandcol_x]['standard_brand'].values[0]
+                except:
+                    value = '没有搜索到标准品牌，请去配置'
+                return (value , '' ,modelcol_x) 
+        else:
+            '''说明有车系
+            '''
+            chinese_pattern = r'[\u4e00-\u9fa5]'
+            no_chinese = re.sub(chinese_pattern , '' , classcol_x)
+            if no_chinese == '':
+
+                if classcol_x in ['其他','凌特轻型客车','唯雅诺商务车','威霆高端商务车','官方改装车']:
+                    return ('奔驰商务车' ,classcol_x , modelcol_x )
+            elif len(no_chinese) <= len(classcol_x):
+                '''
+                说明其中有部分中文
+                '''
+                pattern_all = 'AMG_|AMG|EQC|smart|[A-Za-z]{1,3}-|[A-Za-z]{1,3}|GL[ECA]|V'
+                classcol_x_use = copy.deepcopy(classcol_x)
+                classcol_x = re.sub(chinese_pattern , '' , classcol_x)
+                classcol_x = classcol_x.strip()
+                
+                             
+                class_title = re.match(pattern_all , classcol_x ).group(0)
+                if class_title == 'AMG':
+                    if classcol_x == 'AMG':
+                        return ('AMG','AMG_无法确定',modelcol_x)
+                    else:
+                        for i in ['AMG','_','-','Class',' ']:
+                            classcol_x_use = classcol_x_use.replace(i , '')
+                        
+                        for i in  ['CLA','GLA','CLE','GLC','S','A','C','E','G']:
+                            if i in classcol_x_use:
+                                classcol_x_new = "".join(['AMG_' , classcol_x_use , '-Class'])
+                                return ('AMG',classcol_x_new,modelcol_x)
+                            
+                        if classcol_x_use == 'GT':
+                            return ('AMG','AMG_GT-Class',modelcol_x)
+                        elif 'Mercedes' in classcol_x_use:
+                            return ('AMG','AMG_Mercedes-AMG GT',modelcol_x)
+                        else:
+                            token = ''.join(['_无法确定',str(classcol_x)])
+                            return ('AMG',token,'')                    
+                elif class_title == 'EQC':
+                    return ('EQ','EQC SUV' , modelcol_x)
+                elif class_title == 'smart':
+                    classcol_x_use = classcol_x_use.replace('smart','')
+                    classcol_x_use = classcol_x_use.replace(' ','')
+                    if 'forfour' in classcol_x_use:
+                        return ('smart' , 'smart forfour' , modelcol_x)
+                    elif ('fortwo' in classcol_x_use) and ('cabrio' not in classcol_x_use) and ('Coupe' not in classcol_x_use):
+                        return ('smart' , 'smart fortwo' , modelcol_x)
+                    elif ('fortwo' in classcol_x_use) and ('cabrio' in classcol_x_use) and ('Coupe' not in classcol_x_use):
+                        return ('smart' , 'smart fortwo cabrio' , modelcol_x)
+                    elif ('fortwo' in classcol_x_use) and ('cabrio' not in classcol_x_use) and ('Coupe'  in classcol_x_use):
+                        return ('smart' , 'smart fortwo Coupe' , modelcol_x)
+                    else:
+                        token = "".join(['_无法确定',str(classcol_x)])
+                        return ('smart' , token , '')
+                    
+                elif class_title in ['GLC','GLE']:
+                    if class_title == 'GLC':
+                        return ('Mercedes-Benz Passenger Cars' , 'GLC',modelcol_x)
+                    else:
+                        return ('Mercedes-Benz Passenger Cars' , 'GLE',modelcol_x)
+                elif class_title == 'V' and classcol_x_use == 'V级豪华多功能车':
+                    return ('奔驰商务车' , 'V级豪华多功能车',modelcol_x)
+                else:
+                    for i in ['CLA','CLS','GLA','GLC','GLE','GLS','SLC','SL','V','A','B','E','G','S','C']:
+                        if i in classcol_x_use:
+                            classcol_x_new = "".join([i,"-Class"])
+                            return ('Mercedes-Benz Passenger Cars' , classcol_x_new,modelcol_x)
+
+    else:
+        #print('说明有车型')
+        modelcol_x_use = copy.deepcopy(modelcol_x)
+        modelcol_x_use = modelcol_x_use.replace('S Coupe' , '')
+
+        
+        if 'AMG' in modelcol_x_use:
+            if 'Mercedes-AMG GT 50 4-door Coupe' in modelcol_x:
+                return ( 'AMG'  ,   'AMG_Mercedes-AMG GT'  ,   modelcol_x )
+            else:
+                
+                modelcol_x_use_amg = modelcol_x_use.replace('AMG','')
+                modelcol_x_use_amg = modelcol_x_use_amg.strip()
+                pattern_getclass = r'([a-zA-Z]*)'
+                
+                class_get = re.match(pattern_getclass , modelcol_x_use_amg).group(1)
+                
+                for i in ['CLA','GLA','GLC','GLE','GLS','GT','A','C','E','G','S']:
+                    if  i in class_get:
+                        class_new = "".join(['AMG_',i , '-Class'])
+                        return ('AMG' , class_new, modelcol_x)
+
+        elif 'smart' in modelcol_x_use:
+            if 'smart fortwo cabrio' in modelcol_x_use:
+                return ('smart','smart fortwo cabrio',modelcol_x)
+            elif 'smart fortwo coupe' in modelcol_x_use:
+                return ('smart','smart fortwo coupe',modelcol_x)
+            elif 'smart forfour' in modelcol_x_use:
+                return ('smart','smart forfour',modelcol_x)
+            else:
+                return ('smart' , 'smart fortwo',modelcol_x)
+
+        elif 'EQC' in modelcol_x_use:
+            
+            return ( 'EQ', 'EQC SUV', modelcol_x)
+        
+        else:           
+            for i in ['CLA','CLS','GLA','GLC','GLE','GLS','SLC','SL','G','V','S','A','B','C','E']:                
+                if i in modelcol_x_use:
+                    class_new = "".join([i,'-Class'])
+                    return ('Mercedes-Benz Passenger Cars',class_new , modelcol_x)
+
+
+
+def final_inone(finalname,kind):
+    import pandas as pd
+    import os
+    
+    finalname_fullpath = os.path.join(r'D:\BENZ 模板\final_check' , finalname)
+    if kind == 'customerclean':
+        da = pd.read_csv(finalname_fullpath, encoding = 'gb18030') 
+    elif kind == 'leadsclean' or kind =='directclean':
+        da = pd.read_csv(finalname_fullpath, encoding = 'gb18030',\
+                         dtype = {'LEAD_NETWORK_REGISTRATION_DATE':'str','CAMPAIGN_MEMBER_REGISTRATION_DATE':'str'}) 
+        da['LEAD_NETWORK_REGISTRATION_DATE'] = \
+            da['LEAD_NETWORK_REGISTRATION_DATE'].str.replace('/','-')
+        da['CAMPAIGN_MEMBER_REGISTRATION_DATE'] = \
+            da['CAMPAIGN_MEMBER_REGISTRATION_DATE'].str.replace('/','-')
+        
+    da = data_adjust(da) 
+    
+    da['final'] = ''
+    for i in range(da.shape[1]-1):
+        da['final'] +=da.iloc[:,i].map(str)
+        
+    colname = da.columns.tolist()
+    colname.pop()
+    colnameone = ''.join(colname)
+    
+    da.rename(columns = {'final':colnameone} , inplace = True)
+    
+    
+    finalnameo = finalname.replace('.csv' , 'o.csv')
+    
+    finalnameo_fullpath = os.path.join(r'D:\BENZ 模板\final_check' , finalnameo)
+    
+    da.to_csv(finalnameo_fullpath , encoding = 'gb18030' ,index = False)
+    os.remove(finalname_fullpath)
+    print('最后一列是需要的')
+
+
+if __name__ == '__main__':
+
+
+    import pandas as pd
+
+    import sys
+    sys.path.append(r'')
+    import Benz_tool
+    import os
+    import copy
+    import logging
+    import shutil
+    import datetime
+    
+    rawlist = ''
+    file_name = ''
+    camp_name = ''
+    date_name = ''
+    print('file:',file_name)
+    print('camp_name:',camp_name)
+
+    singlefileinfo_dict = copy.deepcopy(Benz_tool.campinfo_dict)
+    campcode = ''
+    campfile_date = str(datetime.date.today()).replace('-','')
+    campname_date_path = ''
+    campname_path = ''
+    campfile_oldpath = os.path.join('' , file_name)
+    campfile_newpath = os.path.join(campname_path ,'原始数据', campfile_date,file_name)
+    
+    Benz_tool.datecol_dict_add[file_name] = [date_name]
+    datecol_dict = Benz_tool.adject_space(Benz_tool.datecol_dict_add)
+    filelist_all = os.listdir(r'')
+    kind = ''
+    
+    
+    singlefileinfo_dict = copy.deepcopy(Benz_tool.campinfo_dict)
+    singlefileinfo_dict.update({'raw_data_name':file_name})
+    
+    singlefileinfo_dict.update({'campcode' :campcode})
+    singlefileinfo_dict.update({'col_myself' : Benz_tool.col_myself})
+    raw_data = pd.read_excel(os.path.join(singlefileinfo_dict['raw_data_path'] ,\
+                                          singlefileinfo_dict['raw_data_name'])  )
+    
+    raw_data['姓'] = raw_data.apply(lambda x : Benz_tool.name_clean(x['姓名'])[0] , axis = 1)
+    raw_data['名'] = raw_data.apply(lambda x : Benz_tool.name_clean(x['姓名'])[1] , axis = 1)
+    raw_data['性别'] = raw_data.apply(lambda x : Benz_tool.gender(x['性别']) , axis = 1)
+    
+    
+    raw_data = Benz_tool.dateclean(raw_data , datecol_dict[file_name])
+    cleaned = Benz_tool.Benz_clean(raw_data  , kind ,   singlefileinfo_dict)
+    
+    
+    ###################################################################################################################
+    
+    if kind in ['leadsclean','directclean']:
+        cleaned = Benz_tool.standardmodel_clean(cleaned ,'LEAD_INTERESTED_VEHICLE_CLASS' ,'LEAD_INTERESTED_VEHICLE_MODEL' ,\
+                                            Benz_tool.suffix, singlefileinfo_dict)
+        cleaned['LEAD_INTERESTED_VEHICLE_MODEL'] = cleaned['LEAD_INTERESTED_VEHICLE_MODEL'].replace('Other','')
+        
+        
+        standard_brand = ''
+        cleaned['LEAD_INTERESTED_VEHICLE_BRAND'] = cleaned.apply(lambda x : \
+               Benz_tool.brand_class_match_model(x , x['LEAD_INTERESTED_VEHICLE_BRAND'] ,\
+               x['LEAD_INTERESTED_VEHICLE_CLASS'],x['LEAD_INTERESTED_VEHICLE_MODEL'] , standard_brand , False)[0] , axis = 1)
+    
+        
+        cleaned['LEAD_INTERESTED_VEHICLE_CLASS'] =cleaned.apply(lambda x : Benz_tool.brand_class_match_model(x , x['LEAD_INTERESTED_VEHICLE_BRAND'] ,\
+               x['LEAD_INTERESTED_VEHICLE_CLASS'],x['LEAD_INTERESTED_VEHICLE_MODEL'] , standard_brand , False)[1] , axis = 1)
+    
+        cleaned = Benz_tool.purchasetime_match(cleaned , 'LEAD_PURCHASE_TIME' , singlefileinfo_dict)
+        
+    if kind  == 'directclean':
+        dealerlist = [ 'DEALER_ND_CODE']
+        cleaned = Benz_tool.direct_dealercode(cleaned , singlefileinfo_dict,dealerlist)
+    
+    
+    os.chdir(r'')
+    finalname = file_name.replace('.xlsx','')
+    finalname = "_".join([finalname,str(kind) ,'.csv'])
+    cleaned.to_csv(finalname , encoding = 'gb18030' , index = False) 
+    
+    ###################################################################################################################
+    
+    
+    Benz_tool.final_inone(finalname,kind)
