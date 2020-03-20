@@ -116,3 +116,99 @@ select a.FromUserName , a.createtime ,a.msgtype ,a.event , a.eventkey , a.source
 from #10 as a  inner join WXCampaignParticipation as b on a.FromUserName = b.OpenId and b.WXCampaignId = '341'
 order by a.FromUserName , a.CreateTime,a.触发时间
 
+
+-------------------------------------------------------------------- 以上是申领、以下是取关情况
+select  openid , CreateTime , endtime 
+into #1
+from wxcustomrecord where EndTime <='2019-10-10 10:00:29.603'
+--- 查看触发48小时机制的人员名单
+
+
+select a.WXCampaignId,  count(distinct a.openid) 
+from WXCampaignParticipation as a inner join #1 as b on a.OpenId = b.Openid and a.WXCampaignId in ('218','219','227','234','242','339','340','341')
+group by a.WXCampaignId
+
+/*
+WXCampaignId	
+218	XXX
+219	XXX
+227	XXX
+234	XXX
+242	XXX
+339	XXX
+340	XXX
+341	XXX  
+这个groupby是有重复的groupby，即A参与过两个活动，会被两个活动分别groupby，
+大部分用户是新用户，即NTF时间在20190815之后的*/
+
+
+----------------------- 查看出有多少是48小时推送后首次申领，具体的名单
+/*具体查看新用户中，触发了48小时推送机制后申领的用户(细分一天内和所有时间)仅占据总触发人数的一小部分
+*/
+
+
+select count(distinct a.openid) 
+from SysUserInfo as a inner join #1 as b on a.OpenId = b.Openid and a.XYApplyTime>'2019-09-06 00:00:00.000'
+---- EndTime <='2019-10-10 10:00:29.603' 12万人中有三分之一是首次申领的
+---- 这里还要根据触发机制的endtime 结合查看是否真的是48小时机制后的首次申领
+
+select a.XYApplyTime , a.OpenId , b.EndTime
+into #2
+from SysUserInfo as a inner join #1 as b on a.OpenId = b.Openid
+
+
+
+select *    ----------- 收到推送后一天内就申领的人，仅仅469人
+from (select (case when dateadd(day , 1, convert(datetime,convert(varchar(10),EndTime,120))) - XYApplyTime > 0 
+and XYApplyTime - EndTime >0 then 1 else 0 end) as 'check' , XYApplyTime , endtime ,openid from #2) temp 
+where "check" = 1
+
+
+select *   ----------收到推送后 才首次申领的的人也仅仅1206
+from (select (case when XYApplyTime - EndTime >0 then 1 else 0 end) as 'check' , XYApplyTime , endtime ,openid from #2) temp where "check" = 1
+
+
+select *   ----------首次申领在9.6之后但是在收到48小时推送前的有47784 ，也就是说首次申领的人都是在申领之后才参与这个活动，
+from (select (case when XYApplyTime - EndTime <0 and XYApplyTime >='2019-09-06 00:00:00.000' then 1 else 0 end) as 'check' , XYApplyTime , endtime ,openid from #2) temp where "check" = 1
+
+
+
+
+-------------------------------------------- 暂时把9.6首次申领之前的设定为“老用户”，查看这些人的行为
+/*具体查看新用户中，触发了48小时推送机制之前申领的用户中， NTF时间在0815之前的老用户(自己的定义)过去申领量就很多
+反过来说，大部分新用户，NTF时间在0815之后的也在触发机制之前就已经申领
+*/
+
+
+select a.OpenId , a.XYApplyTime , b.EndTime , a.CusLevel , ROW_NUMBER()over(partition by a.openid order by a.xyapplytime desc) as 'rank'
+into #6
+from SysUserInfo as a inner join #1 as b on a.OpenId = b.Openid and a.XYApplyTime<'2019-08-15 00:00:00.000'
+drop table #6
+
+select a.WXCampaignId,  count(a.openid) ,
+sum(case when b.CusLevel = '' then 1 else 0 end) ,
+sum(case when b.CusLevel = 'Active' then 1 else 0 end) as 'active',
+sum(case when b.CusLevel = 'HistoryUser' then 1 else 0 end) as 'historyuser',
+sum(case when b.CusLevel = 'Lapse' then 1 else 0 end) as 'Lapse',
+sum(case when b.CusLevel = 'Prospect' then 1 else 0 end) as 'Prospect',
+sum(case when b.CusLevel = 'Prospect Black' then 1 else 0 end) as 'Prospect Black'
+
+from WXCampaignParticipation as a inner join #6 as b on a.OpenId = b.Openid and a.WXCampaignId in ('218','219','227','234','242','339','340','341')
+group by a.WXCampaignId
+order by WXCampaignId  ---- 这里看到 参与这些活动的老客户的构成
+
+
+select *
+into #7
+from #6
+where "rank" = 1
+select count(distinct openid) , count(openid) from #7
+
+
+select b.openid , count(1) from WXCampaignParticipation as a inner join #7 as b on a.OpenId = b.Openid and a.WXCampaignId in ('218','219','227','234','242','339','340','341')
+group by b.openid
+
+
+----- 从上表可以看出这部分客户本身对活动参与度较高，应该是参与了所以参与这个48小时活动，而不是说参与了48小时活动后才有申领！
+
+
