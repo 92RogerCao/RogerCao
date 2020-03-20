@@ -1,0 +1,1393 @@
+from pptx import Presentation
+import pyodbc
+from sql_file import sql_list
+import pandas as pd
+from pptx.chart.data import ChartData
+import xlwt,xlrd
+import xlutils.copy
+import datetime
+from pptx.util import Pt
+from dateutil.relativedelta import relativedelta
+from decimal import *
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+
+driver = ''
+server = ''
+user = ''
+password = ''
+database = ''
+
+
+'''
+根据建议以抽象化思维编写，将作图等功能均函数化
+PPT各页之间数据基本不相互引用，不以类形式处理
+'''
+
+
+class run_ppt_chartdata_replace(object):
+    '''现有图，刷上数据'''
+    def __init__(self,shape_name,sql_content,series_name): 
+        _shape_name = shape_name   # shape_name 参数传入 ppt类的 对应shape对象
+        _sql_content = sql_content
+        _series_name = series_name # 不在内部指定 df的名字，更加灵活
+        _chart_data = self.chartdata_replace_get(_sql_content,_series_name) # 通过这种方式不需要显式调用 run_sql的函数
+        self.chartdata_replace(_chart_data,_series_name,_shape_name)
+
+    def chartdata_replace_get(self,_sql_content,_series_name):
+        conn = pyodbc.connect(driver=driver, server=server, user=user, password=password, database=database,autocommit=True)
+        cursor = conn.cursor()
+        cursor.execute(_sql_content)
+        rs = [list(i) for i in cursor.fetchall()]
+        chartdata_title = ['name']
+        chartdata_title.extend(_series_name)
+        chartdata = pd.DataFrame(list(rs),columns=chartdata_title)
+        conn.close()
+        return chartdata
+
+    def chartdata_replace(self,_chart_data,_series_name,_shape_name):
+        chart_data_replace = ChartData()
+        chart_data_replace.categories = list(_chart_data['name'])
+        for i in range(0,len(_series_name)):
+            chart_data_replace.add_series(_series_name[i],_chart_data[_series_name[i]])
+        _shape_name.chart.replace_data(chart_data_replace)
+
+class run_ppt_chatdata_add(object):
+    '''与run_ppt_chartdata_replace 功能类似，添加功能为读取Excel文件  '''
+    def __init__(self,sheet_name,sql_content,series_name,shape_name,categories,\
+                    isSameSheet = True,sheet_name_new = '',\
+                 data_xls_name = 'ks_data.xls',data_xls_name_new = 'ks_data_new.xls'):
+        _sheet_name = sheet_name   # 这里的sheet_name 对应的 ks.xlsx 中的sheet 名称
+        _sql_content = sql_content
+        _series_name = series_name
+        _shape_name = shape_name
+        _categories = categories
+        _sheet_name_new = sheet_name_new
+        _data_xls_name = data_xls_name
+        _data_xls_name_new = data_xls_name_new
+        self.write_data_rows(_sheet_name,_sql_content,_series_name,_data_xls_name,_data_xls_name_new)
+        # 意图是将数据写在Excel中
+
+        _chart_data_file = xlrd.open_workbook(_data_xls_name_new) # 读取new的数据
+        if isSameSheet == True:
+            _chart_data_sheet = _chart_data_file.sheet_by_name(sheet_name)
+        elif _sheet_name_new == '':
+            raise ["Please input 'sheet_name_new'"]
+        else:
+            _chart_data_sheet = _chart_data_file.sheet_by_name(sheet_name_new)
+        
+        _chart_data = []
+        if _chart_data_sheet.nrows < len(_categories): 
+            for i in range(1, len(_series_name)+1):
+                list_01 = _chart_data_sheet.col_values(i, 1, _chart_data_sheet.nrows) # sheet对象是xlwt,xlrd中，col_values是？？？
+                list_01 = [float(m) for m in list_01]
+                list_01.extend([0 for j in range(_chart_data_sheet.nrows,len(_categories)+1)])
+                _chart_data.append(list_01)
+        else:
+            for i in range(1, len(_series_name)+1):
+                list_02 = _chart_data_sheet.col_values(i, _chart_data_sheet.nrows-12, _chart_data_sheet.nrows)
+                list_02 = [float(m) for m in list_02] 
+                _chart_data.append(list_02) # 对需要刷图的数据进行处理准备
+
+        self.chatdata_add(_chart_data,_series_name,_shape_name,_categories)
+
+    def readlines(self,_sheet_name,_data_xls_name):
+        wb = xlrd.open_workbook(_data_xls_name)
+        sheet = wb.sheet_by_name(_sheet_name)
+        nrows = sheet.nrows
+        ncols = sheet.ncols
+        return nrows, ncols
+
+    def write_data_rows(self,_sheet_name,_sql_content,_series_name,_data_xls_name,_data_xls_name_new):
+        '''ks_data 现有数据 到 ks_data_new  '''
+        data = xlrd.open_workbook(_data_xls_name)
+        data_copy = xlutils.copy.copy(data)
+        table = data_copy.get_sheet(_sheet_name)
+        nowindex = self.readlines(_sheet_name,_data_xls_name)
+        data_new = self.chatdata_add_get(_sql_content,_series_name)
+        chartdata_title = ['name']
+        chartdata_title.extend(_series_name)
+        for i in range(0,data_new.shape[1]):
+            table.write(nowindex[0],i,label = str(data_new[chartdata_title[i]].values[0]))
+        data_copy.save(_data_xls_name_new)
+
+    def chatdata_add_get(self,_sql_content,_series_name):
+        conn = pyodbc.connect(driver=driver, server=server, user=user, password=password, database=database)
+        cursor = conn.cursor()
+        cursor.execute(_sql_content)
+        rs = [list(i) for i in cursor.fetchall()]
+        chartdata_title = ['name']
+        chartdata_title.extend(_series_name)
+        chartdata = pd.DataFrame(list(rs),columns=chartdata_title)
+        conn.close()
+        return chartdata
+
+    def chatdata_add(self,_chart_data,_series_name,_shape_name,_categories):
+        '''将数据刷到图中'''
+        chart_data_replace = ChartData()
+        chart_data_replace.categories = _categories
+        for i in range(0,len(_series_name)):
+            chart_data_replace.add_series(_series_name[i],[j for j in _chart_data[i]])
+        _shape_name.chart.replace_data(chart_data_replace)
+
+# class run_ppt_label(object):
+#     def __init__(self):
+def list_Rolling(n):
+    '''rolling 12个月的计算'''
+    date = datetime.datetime.today()
+    month = date.month
+    year = date.year
+    for i in range(n):
+        if month == 1:
+            year -= 1
+            month = 12
+        else:
+            month -= 1
+    return datetime.date(year, month, 1).strftime('%b-%y')
+
+def increase_decrease(n):
+    if n < 0:
+        str_n = 'decreased '+'{:.0%}'.format(-n)
+    else:
+        str_n = 'increased '+'{:.0%}'.format(n)
+    return str_n
+
+def vs_LM(n): # last month
+    if n < 0:
+        str_n = '-'+'{:.0%}'.format(-n)
+    else:
+        str_n = '+'+'{:.0%}'.format(n)
+    return str_n
+
+def vs_LM_1(n):
+    if n < 0:
+        str_n = '-'+'{:.1%}'.format(-n)
+    else:
+        str_n = '+'+'{:.1%}'.format(n)
+    return str_n
+
+def repurchase_LM(sheet_name):
+    '''上月再购'''
+    data = pd.DataFrame(pd.read_excel('ks_data.xls',sheet_name=sheet_name,header=0))
+    nrows = data.shape[0]
+    return data.iloc[nrows-1][1]
+
+
+
+
+if __name__ == '__main__':
+    read_pptx = Presentation('template.pptx')
+    TM_dt = datetime.date.today() - relativedelta(months=+1) 
+    NM_dt = datetime.date.today()
+    LY_dt = datetime.date.today() - relativedelta(months=+1)-relativedelta(years=+1)
+    NY_dt = datetime.date.today() - relativedelta(months=+1) - relativedelta(years=-1)
+    TM_EN = TM_dt.strftime( '%b' )
+    NM_EN = NM_dt.strftime( '%b' ) 
+    YEAR_EN = TM_dt.strftime( '%Y' )
+    YEAR_LY = LY_dt.strftime( '%Y' )
+    YEAR_NY = NY_dt.strftime('%Y')
+    #ppt-3
+    
+    ppt_3 = read_pptx.slides[2]
+    Recruitment_new_ytd = \
+        run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[23], sql_list("sql_ppt_4_04"), ['YTD', 'LY', 'VS LY'])
+        
+        
+    ppt_3.shapes[23].text_frame.paragraphs[3].text = 'YTD comp store specialty new recruit '+ \
+                                                    format(int(Recruitment_new_ytd.iloc[0][1]),",")+"("+ \
+                                                     '{:.0%}'.format(Recruitment_new_ytd.iloc[0][3])+' VS LY)'
+    ppt_3.shapes[23].text_frame.paragraphs[3].font.bold = True
+    ppt_3.shapes[23].text_frame.paragraphs[6].text = 'YTD comp store outlet new recruit ' + format(int(Recruitment_new_ytd.iloc[1][1]), ",") + "(" + \
+                                                     '{:.0%}'.format(Recruitment_new_ytd.iloc[1][3]) + ' VS LY)'
+    ppt_3.shapes[23].text_frame.paragraphs[6].font.bold = True
+    Recruitment_new_grade_FP = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[23], sql_list("sql_ppt_4_04_fp"),['ytd'])
+    ppt_3.shapes[23].text_frame.paragraphs[4].text = '     Diamond:'+format(int(Recruitment_new_grade_FP.iloc[0][1]),",")+\
+                                                     ' Gold: '+format(int(Recruitment_new_grade_FP.iloc[1][1]),",")
+    ppt_3.shapes[23].text_frame.paragraphs[4].font.bold = True
+    ppt_3.shapes[23].text_frame.paragraphs[5].text = '     Silver:' + format(int(Recruitment_new_grade_FP.iloc[2][1]), ",") + \
+                                                     ' Member:' + format(int(Recruitment_new_grade_FP.iloc[3][1]), ",")
+    ppt_3.shapes[23].text_frame.paragraphs[5].font.bold = True
+    Recruitment_new_grade_OL = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[23],sql_list("sql_ppt_4_04_ol"), ['ytd'])
+    ppt_3.shapes[23].text_frame.paragraphs[7].text = '     Diamond:' + format(int(Recruitment_new_grade_OL.iloc[0][1]), ",") + \
+                                                     ' Gold: ' + format(int(Recruitment_new_grade_OL.iloc[1][1]), ",")
+    ppt_3.shapes[23].text_frame.paragraphs[7].font.bold = True
+    ppt_3.shapes[23].text_frame.paragraphs[8].text = '     Silver:' + format(int(Recruitment_new_grade_OL.iloc[2][1]), ",") + \
+                                                     ' Member:' + format(int(Recruitment_new_grade_OL.iloc[3][1]), ",")
+    ppt_3.shapes[23].text_frame.paragraphs[8].font.bold = True
+
+    Retention_ytd = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[16], sql_list("sql_ppt_4_05"), ['YTD', 'LY', 'VS LY'])
+    ppt_3.shapes[16].text_frame.paragraphs[3].text = 'YTD comp store specialty new recruit '+ format(int(Retention_ytd.iloc[0][1]),",")+"("+ \
+                                                     '{:.0%}'.format(Retention_ytd.iloc[0][3])+' VS LY)'
+    ppt_3.shapes[16].text_frame.paragraphs[3].font.bold = True
+    ppt_3.shapes[16].text_frame.paragraphs[6].text = 'YTD comp store outlet new recruit ' + format(int(Retention_ytd.iloc[1][1]), ",") + "(" + \
+                                                     '{:.0%}'.format(Retention_ytd.iloc[1][3]) + ' VS LY)'
+    ppt_3.shapes[16].text_frame.paragraphs[6].font.bold = True
+    Retention_grade_FP = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[23],sql_list("sql_ppt_4_05_fp"), ['ytd'])
+    ppt_3.shapes[16].text_frame.paragraphs[4].text = '     Diamond:' + format(int(Retention_grade_FP.iloc[0][1]),",") + \
+                                                     ' Gold: ' + format(int(Retention_grade_FP.iloc[1][1]), ",")
+    ppt_3.shapes[16].text_frame.paragraphs[4].font.bold = True
+    ppt_3.shapes[16].text_frame.paragraphs[5].text = '     Silver:' + format(int(Retention_grade_FP.iloc[2][1]),",") + \
+                                                     ' Member:' + format(int(Retention_grade_FP.iloc[3][1]), ",")
+    ppt_3.shapes[16].text_frame.paragraphs[5].font.bold = True
+    Retention_grade_OL = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[23],sql_list("sql_ppt_4_05_ol"), ['ytd'])
+    ppt_3.shapes[16].text_frame.paragraphs[7].text = '     Diamond:' + format(int(Retention_grade_OL.iloc[0][1]),",") + \
+                                                     ' Gold: ' + format(int(Retention_grade_OL.iloc[1][1]), ",")
+    ppt_3.shapes[16].text_frame.paragraphs[7].font.bold = True
+    ppt_3.shapes[16].text_frame.paragraphs[8].text = '     Silver:' + format(int(Retention_grade_OL.iloc[2][1]),",") + \
+                                                     ' Member:' + format(int(Retention_grade_OL.iloc[3][1]), ",")
+    ppt_3.shapes[16].text_frame.paragraphs[8].font.bold = True
+
+    Database_review_count = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[17],sql_list("sql_ppt_4_02_count"), ['quantity'])
+    Database_review_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[17],sql_list("sql_ppt_4_02"),['percent'])
+    Database_review_active_count = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[17],sql_list("sql_ppt_4_03_count"),['quantity'])
+    Database_review_active_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[17],sql_list("sql_ppt_4_03"), ['percent'])
+    ppt_3.shapes[17].text_frame.paragraphs[2].text = 'Database：'+ format(int(Database_review_count['quantity'].sum()),",")
+    ppt_3.shapes[17].text_frame.paragraphs[3].text = 'Diamond: '+ format(int(Database_review_count.iloc[4][1]),",") +"("+\
+                                                     '{:.1%}'.format(Database_review_percent.iloc[4][1])+ ")"
+    ppt_3.shapes[17].text_frame.paragraphs[4].text = '       Gold: ' + format(int(Database_review_count.iloc[3][1]),",") + "(" + \
+                                                     '{:.1%}'.format(Database_review_percent.iloc[3][1]) + ")"
+    ppt_3.shapes[17].text_frame.paragraphs[5].text = '       Silver: ' + format(int(Database_review_count.iloc[2][1]),",") + "(" + \
+                                                     '{:.1%}'.format(Database_review_percent.iloc[2][1]) + ")"
+    ppt_3.shapes[17].text_frame.paragraphs[6].text = '       Member: ' + format(int(Database_review_count.iloc[1][1]),",") + "(" + \
+                                                     '{:.1%}'.format(Database_review_percent.iloc[1][1]) + ")"
+    ppt_3.shapes[17].text_frame.paragraphs[8].text = 'Database：' + format(int(Database_review_active_count['quantity'].sum()),",")+"("+\
+                                                     '{:.0%}'.format(int(Database_review_active_count['quantity'].sum())/int(Database_review_count['quantity'].sum()))+ ")"
+    ppt_3.shapes[17].text_frame.paragraphs[9].text = 'Diamond: ' + format(int(Database_review_active_count.iloc[3][1]),",") + "(" + \
+                                                     '{:.0%}'.format(Database_review_active_percent.iloc[3][1]) + ")"
+    ppt_3.shapes[17].text_frame.paragraphs[10].text = '       Gold: ' + format(int(Database_review_active_count.iloc[2][1]),",") + "(" + \
+                                                     '{:.0%}'.format(Database_review_active_percent.iloc[2][1]) + ")"
+    ppt_3.shapes[17].text_frame.paragraphs[11].text = '       Silver: ' + format(int(Database_review_active_count.iloc[1][1]),",") + "(" + \
+                                                     '{:.0%}'.format(Database_review_active_percent.iloc[1][1]) + ")"
+    ppt_3.shapes[17].text_frame.paragraphs[12].text = '       Member: ' + format(int(Database_review_active_count.iloc[0][1]),",") + "(" + \
+                                                     '{:.0%}'.format(Database_review_active_percent.iloc[0][1]) + ")"
+    for i in range(0,13):
+        ppt_3.shapes[17].text_frame.paragraphs[i].font.bold = True
+        ppt_3.shapes[17].text_frame.paragraphs[i].font.size = Pt(16)
+
+    Data_capture_FP = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[19],sql_list("sql_ppt_7_01_YTD20"), ['Capture','Not Capture'])
+    Data_capture_OL = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[19], sql_list("sql_ppt_7_02_YTD20"),['Capture', 'Not Capture'])
+    ppt_3.shapes[19].text_frame.paragraphs[3].text = '     Specialty: '+'{:.0%}'.format(Data_capture_FP.iloc[0][1])+\
+                                                     ',Outlet: '+'{:.0%}'.format(Data_capture_OL.iloc[0][1])
+    ppt_3.shapes[19].text_frame.paragraphs[3].font.bold = True
+
+    customer_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[20],sql_list("sql_ppt_8_01"), ['percent'])
+    sales_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[20], sql_list("sql_ppt_8_02"),['percent'])
+    ppt_3.shapes[20].text_frame.paragraphs[5].text = ' Diamond:'+'{:.0%}'.format(customer_percent.iloc[0][1])+';  Gold: '+'{:.0%}'.format(customer_percent.iloc[1][1])+\
+                                                     ';  Silver:'+'{:.0%}'.format(customer_percent.iloc[2][1])+'; Member:'+'{:.0%}'.format(customer_percent.iloc[3][1])
+    ppt_3.shapes[20].text_frame.paragraphs[9].text = ' Diamond:' + '{:.0%}'.format(sales_percent.iloc[0][1]) + ';  Gold: ' + '{:.0%}'.format(sales_percent.iloc[1][1]) + \
+                                                     ';  Silver:' + '{:.0%}'.format(sales_percent.iloc[2][1]) + '; Member:' + '{:.0%}'.format(sales_percent.iloc[3][1])
+    ppt_3.shapes[20].text_frame.paragraphs[5].font.bold = True
+    ppt_3.shapes[20].text_frame.paragraphs[9].font.bold = True
+
+    Repurchase_rate_FP = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[21],sql_list("sql_ppt_14_01"),  ['Member_n','Member_s','Silver_n','Silver_s','Gold_n','Gold_s','Diamond_n','Diamond_s'
+                                                                           ,'Member_np','Member_sp','Silver_np','Silver_sp','Gold_np','Gold_sp','Diamond_np','Diamond_sp'])
+    ppt_3.shapes[21].text_frame.paragraphs[3].text = 'YTD specialty repurchase rate：'+\
+                                                     '{:.0%}'.format(1-(Repurchase_rate_FP.iloc[0][1]+Repurchase_rate_FP.iloc[0][3]+Repurchase_rate_FP.iloc[0][5]+Repurchase_rate_FP.iloc[0][7])/
+                                                                     (Repurchase_rate_FP['Member_n'].sum()+Repurchase_rate_FP['Silver_n'].sum()+Repurchase_rate_FP['Gold_n'].sum()+Repurchase_rate_FP['Diamond_n'].sum()))
+    ppt_3.shapes[21].text_frame.paragraphs[4].text = '     Member: '+ '{:.0%}'.format(1-Repurchase_rate_FP.iloc[0][9])+\
+                                                     '%, Silver: '+'{:.0%}'.format(1-Repurchase_rate_FP.iloc[0][11])
+    ppt_3.shapes[21].text_frame.paragraphs[5].text = '     Gold: '+'{:.0%}'.format(1-Repurchase_rate_FP.iloc[0][13])+\
+                                                     '%,Diamond: '+'{:.0%}'.format(1-Repurchase_rate_FP.iloc[0][15])
+    Repurchase_rate_FP_TM_1 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[21],sql_list("sql_ppt_11_01"),['percent'])
+    Repurchase_rate_FP_TM_3 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[21],sql_list("sql_ppt_11_02"), ['percent'])
+    Repurchase_rate_FP_TM_6 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[21],sql_list("sql_ppt_11_03"), ['percent'])
+    ppt_3.shapes[21].text_frame.paragraphs[7].text = 'Specialty  New customer repeat in '+TM_EN + '.:'
+    ppt_3.shapes[21].text_frame.paragraphs[8].text = '1 month:  '+'{:.0%}'.format(Repurchase_rate_FP_TM_1.iloc[0][1])+\
+                                                     '%  (vs LM: '+'{:.0%}'.format((Repurchase_rate_FP_TM_1.iloc[0][1]-Decimal(repurchase_LM('p11_01')))/Decimal(repurchase_LM('p11_01')))+' )'
+    ppt_3.shapes[21].text_frame.paragraphs[9].text = '3 month:  ' + '{:.0%}'.format(Repurchase_rate_FP_TM_3.iloc[0][1]) + \
+                                                     '%  (vs LM: ' + '{:.0%}'.format((Repurchase_rate_FP_TM_3.iloc[0][1] - Decimal(repurchase_LM('p11_02'))) / Decimal(repurchase_LM('p11_02'))) + ' )'
+    ppt_3.shapes[21].text_frame.paragraphs[10].text = '6 month:  ' + '{:.0%}'.format(Repurchase_rate_FP_TM_6.iloc[0][1]) + \
+                                                     '%  (vs LM: ' + '{:.0%}'.format((Repurchase_rate_FP_TM_6.iloc[0][1] - Decimal(repurchase_LM('p11_03'))) / Decimal(repurchase_LM('p11_03'))) + ' )'
+
+    Repurchase_rate_OL = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[22], sql_list("sql_ppt_15_01"),['Member_n', 'Member_s', 'Silver_n','Silver_s', 'Gold_n', 'Gold_s', 'Diamond_n','Diamond_s'
+                                                                             , 'Member_np', 'Member_sp', 'Silver_np','Silver_sp', 'Gold_np', 'Gold_sp','Diamond_np', 'Diamond_sp'])
+    ppt_3.shapes[22].text_frame.paragraphs[2].text = 'YTD outlet repurchase rate：' + \
+                                                     '{:.0%}'.format(1 - (Repurchase_rate_OL.iloc[0][1] +Repurchase_rate_OL.iloc[0][3] +Repurchase_rate_OL.iloc[0][5] +Repurchase_rate_OL.iloc[0][7]) /
+                                                                     (Repurchase_rate_OL['Member_n'].sum() +Repurchase_rate_OL['Silver_n'].sum() +Repurchase_rate_OL['Gold_n'].sum() +Repurchase_rate_OL['Diamond_n'].sum()))
+    ppt_3.shapes[22].text_frame.paragraphs[3].text = '     Member: ' + '{:.0%}'.format(1 - Repurchase_rate_OL.iloc[0][9]) + \
+                                                     '%, Silver: ' + '{:.0%}'.format(1 - Repurchase_rate_OL.iloc[0][11])
+    ppt_3.shapes[22].text_frame.paragraphs[4].text = '     Gold: ' + '{:.0%}'.format(1 - Repurchase_rate_OL.iloc[0][13]) + \
+                                                     '%,Diamond: ' + '{:.0%}'.format(1 - Repurchase_rate_OL.iloc[0][15])
+    Repurchase_rate_OL_TM_1 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[22],sql_list("sql_ppt_11_04"), ['percent'])
+    Repurchase_rate_OL_TM_3 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[22],sql_list("sql_ppt_11_05"), ['percent'])
+    Repurchase_rate_OL_TM_6 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_3.shapes[22],sql_list("sql_ppt_11_06"), ['percent'])
+    ppt_3.shapes[22].text_frame.paragraphs[6].text = 'Outlet  New customer repeat in ' + TM_EN + '.:'
+    ppt_3.shapes[22].text_frame.paragraphs[7].text = '1 month:  ' + '{:.0%}'.format(Repurchase_rate_OL_TM_1.iloc[0][1]) + \
+                                                     '%  (vs LM: ' + '{:.0%}'.format((Repurchase_rate_OL_TM_1.iloc[0][1] - Decimal(repurchase_LM('p11_04'))) / Decimal(repurchase_LM('p11_04'))) + ' )'
+    ppt_3.shapes[22].text_frame.paragraphs[8].text = '3 month:  ' + '{:.0%}'.format(Repurchase_rate_OL_TM_3.iloc[0][1]) + \
+                                                     '%  (vs LM: ' + '{:.0%}'.format((Repurchase_rate_OL_TM_3.iloc[0][1] - Decimal(repurchase_LM('p11_05'))) / Decimal(repurchase_LM('p11_05'))) + ' )'
+    ppt_3.shapes[22].text_frame.paragraphs[9].text = '6 month:  ' + '{:.0%}'.format(Repurchase_rate_OL_TM_6.iloc[0][1]) + \
+                                                      '%  (vs LM: ' + '{:.0%}'.format((Repurchase_rate_OL_TM_6.iloc[0][1] - Decimal(repurchase_LM('p11_06'))) / Decimal(repurchase_LM('p11_06'))) + ' )'
+
+    print("---------------ppt3 CRM Summary更新完成--------------------------")
+
+    #ppt-4
+    ppt_4 = read_pptx.slides[3]
+    run_ppt_chartdata_replace(ppt_4.shapes[1],sql_list("sql_ppt_4_01"),['人数占比'])
+    run_ppt_chartdata_replace(ppt_4.shapes[21],sql_list("sql_ppt_4_02"),['人数占比'])
+    run_ppt_chartdata_replace(ppt_4.shapes[27], sql_list("sql_ppt_4_03"), ['人数占比'])
+    run_ppt_chartdata_replace(ppt_4.shapes[37], sql_list("sql_ppt_4_04"), ['YTD','LY','VS LY'])
+    run_ppt_chartdata_replace(ppt_4.shapes[32], sql_list("sql_ppt_4_05"), ['YTD', 'LY', 'VS LY'])
+    
+    # 以下是对 text进行处理
+    Customer_distribution = run_ppt_chartdata_replace.chartdata_replace_get(ppt_4.shapes[6],sql_list("sql_ppt_4_01"), ['count'])
+    Customer_distribution_lstyear = run_ppt_chartdata_replace.chartdata_replace_get(ppt_4.shapes[6], sql_list("sql_ppt_4_01_lstyear"),['count'])
+    ppt_4.shapes[6].text_frame.paragraphs[1].text = 'Ttl '+ format(Customer_distribution.iloc[0][1],",")
+    ppt_4.shapes[6].text_frame.paragraphs[1].font.bold = True
+    ppt_4.shapes[6].text_frame.paragraphs[1].font.size = Pt(21)
+    ppt_4.shapes[6].text_frame.paragraphs[2].text = 'VS LY R12M ' + format(Customer_distribution_lstyear.iloc[2][1],",")
+    ppt_4.shapes[6].text_frame.paragraphs[2].font.bold = True
+    ppt_4.shapes[6].text_frame.paragraphs[2].font.size = Pt(21)
+    ppt_4.shapes[7].text_frame.paragraphs[1].text = 'Ttl ' + format(Customer_distribution.iloc[1][1],",")
+    ppt_4.shapes[7].text_frame.paragraphs[1].font.bold = True
+    ppt_4.shapes[7].text_frame.paragraphs[1].font.size = Pt(21)
+    ppt_4.shapes[7].text_frame.paragraphs[2].text = 'VS LY R12M ' + format(Customer_distribution_lstyear.iloc[1][1],",")
+    ppt_4.shapes[7].text_frame.paragraphs[2].font.bold = True
+    ppt_4.shapes[7].text_frame.paragraphs[2].font.size = Pt(21)
+    ppt_4.shapes[36].text_frame.paragraphs[1].text = 'Ttl ' + format(Customer_distribution.iloc[2][1],",")
+    ppt_4.shapes[36].text_frame.paragraphs[1].font.bold = True
+    ppt_4.shapes[36].text_frame.paragraphs[1].font.size = Pt(21)
+
+    ppt_4.shapes[14].text = format(Database_review_count.iloc[0][1], ",") # 这里会引用ppt3 中的数据！！！！
+    ppt_4.shapes[22].text = format(Database_review_count.iloc[1][1], ",")
+    ppt_4.shapes[23].text = format(Database_review_count.iloc[3][1], ",")
+    ppt_4.shapes[24].text = format(Database_review_count.iloc[4][1], ",")
+    ppt_4.shapes[29].text = format(Database_review_count.iloc[2][1], ",")
+
+    ppt_4.shapes[15].text = format(Database_review_active_count.iloc[3][1], ",")
+    ppt_4.shapes[16].text = format(Database_review_active_count.iloc[1][1], ",")
+    ppt_4.shapes[17].text = format(Database_review_active_count.iloc[0][1], ",")
+    ppt_4.shapes[30].text = format(Database_review_active_count.iloc[2][1], ",")
+    
+    for i in (14,15,16,17,22,23,24,29,30): # 对固定的某几个字段 进行个性化处理
+        ppt_4.shapes[i].text_frame.paragraphs[0].font.color.rgb = RGBColor(225, 119, 145)
+        ppt_4.shapes[i].text_frame.paragraphs[0].font.bold = True
+        ppt_4.shapes[i].text_frame.paragraphs[0].font.size = Pt(20)
+
+    ppt_4.shapes[25].text_frame.paragraphs[0].text = '*Data cut of data:'+TM_EN +'. , '+YEAR_EN
+    ppt_4.shapes[25].text_frame.paragraphs[0].font.size = Pt(20)
+    ppt_4.shapes[0].text_frame.paragraphs[0].text = 'By the end of '+ TM_EN + '. '+YEAR_EN +', total  '+ \
+                                                    format(Customer_distribution['count'].sum(),",")+' members in database, Totally '\
+                                                    +'{:.1%}'.format(Database_review_percent.iloc[4][1])+' diamond, '+\
+                                                    '{:.1%}'.format(Database_review_percent.iloc[3][1])+' gold ,'+\
+                                                    '{:.1%}'.format(Database_review_percent.iloc[2][1])+' silver, '+\
+                                                    '{:.1%}'.format(Database_review_percent.iloc[1][1])+' member and '+\
+                                                    '{:.1%}'.format(Database_review_percent.iloc[0][1])+' prospect in database；'
+    ppt_4.shapes[0].text_frame.paragraphs[1].text = format(Customer_distribution.iloc[0][1],",") + ' members ('+ \
+                                                    '{:.0%}'.format(Customer_distribution.iloc[0][1]/Customer_distribution['count'].sum())+' accounted for total ) purchased in R12M.Diamond active rate is '\
+                                                    +'{:.0%}'.format(Database_review_active_percent.iloc[3][1])+', gold active rate is '+\
+                                                    '{:.0%}'.format(Database_review_active_percent.iloc[2][1])+',  silver active is '+\
+                                                    '{:.0%}'.format(Database_review_active_percent.iloc[1][1])+' and member active rate is '+\
+                                                    '{:.0%}'.format(Database_review_active_percent.iloc[0][1])
+    ppt_4.shapes[0].text_frame.paragraphs[2].text = 'Compared with LY, Specialty’s new customer ' + increase_decrease(Recruitment_new_ytd.iloc[0][3])+\
+                                                    ', outlet’s  '+increase_decrease(Recruitment_new_ytd.iloc[1][3])
+    ppt_4.shapes[0].text_frame.paragraphs[3].text = 'Compared with LY, Specialty’s existing customer ' + increase_decrease(Retention_ytd.iloc[0][3]) + \
+                                                    ', outlet’s  ' + increase_decrease(Retention_ytd.iloc[1][3])
+
+    print("---------------ppt4 Database Overview更新完成--------------------------")
+
+    #ppt-5
+    ppt_5 = read_pptx.slides[4]
+    run_ppt_chatdata_add("p5",sql_list("sql_ppt_5_01"),['Prospect','Member','Silver','Gold','Diamond'],ppt_5.shapes[7],
+                         ['Jul,FY20','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun','Jul,FY21'])
+
+
+    '''table chart的作图方式：右图'''
+    ppt_5_table = ppt_5.shapes[0]
+    ppt_5_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_5_table,sql_list("sql_ppt_5_02"),['Prospect','Member','Silver','Gold','Diamond'])
+    for i in range(0,6): # 7行
+        for j in range(1,6): # 6行
+            if ppt_5_table_data.iloc[i][j] >0 :
+                ppt_5_table.table.cell(i+1,j).text = str(int(ppt_5_table_data.iloc[i][j]))
+                ppt_5_table.table.cell(i + 1, j).text_frame.paragraphs[0].font.size = Pt(20)
+                ppt_5_table.table.cell(i + 1, j).text_frame.paragraphs[0].font.name = 'Calibri'
+    ppt_5.shapes[1].text_frame.paragraphs[0].text = 'Status of Membership Grade-'+TM_EN
+    ppt_5.shapes[1].text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+    ppt_5.shapes[1].text_frame.paragraphs[0].font.bold = True
+    ppt_5.shapes[5].text_frame.paragraphs[0].text = 'New recruit: Register/First purchase time in '+TM_EN
+    ppt_5.shapes[6].text_frame.paragraphs[0].text = 'In '+TM_EN + '.'+YEAR_EN+ ', totally recruit '+format(int(ppt_5_table_data.iloc[0][1]+ppt_5_table_data.iloc[0][2]+
+                                                                                                           ppt_5_table_data.iloc[0][3]+ppt_5_table_data.iloc[0][4]+ppt_5_table_data.iloc[0][5]),",")+' Members (Including '\
+                                                    +format(int(ppt_5_table_data.iloc[0][1]),",")+' prospects, '+format(int(ppt_5_table_data.iloc[0][2]),",")+' member, '\
+                                                    +format(int(ppt_5_table_data.iloc[0][3]),",")+' silver, '+format(int(ppt_5_table_data.iloc[0][4]),",")+' gold and '+\
+                                                    format(int(ppt_5_table_data.iloc[0][5]),",")+' diamond）'
+
+    ppt_5.shapes[6].text_frame.paragraphs[1].text = format(int(ppt_5_table_data.iloc[0][4]+ppt_5_table_data.iloc[1][4]),",")+' new customers, '\
+                                                    +format(int(ppt_5_table_data.iloc[2][4]),",")+' members ,'\
+                                                    +format(int(ppt_5_table_data.iloc[3][4]),",")+' silvers moved to gold ; '\
+                                                    +format(int(ppt_5_table_data.iloc[0][5]+ppt_5_table_data.iloc[1][5]),",")+' new customers ,'\
+                                                    +format(int(ppt_5_table_data.iloc[2][5]),",")+'member, '\
+                                                    +format(int(ppt_5_table_data.iloc[3][5]),",")+'silver, '\
+                                                    +format(int(ppt_5_table_data.iloc[4][5]),",")+'gold moved to diamond.'
+
+    print("---------------ppt5 Status of Membership Grade更新完成--------------------------")
+
+    #ppt-6
+    ppt_6 = read_pptx.slides[5]
+    run_ppt_chatdata_add("p6_01",sql_list("sql_ppt_6_01"),["count"],ppt_6.shapes[3],
+                         [list_Rolling(12-i) for i in range(12)]) # [ 'count' ] 对应series_name
+    run_ppt_chatdata_add("p6_02", sql_list("sql_ppt_6_02"), ["Retention Rate"], ppt_6.shapes[5],
+                         [list_Rolling(12 - i) for i in range(12)])
+    run_ppt_chatdata_add("p6_03", sql_list("sql_ppt_6_03"), ["sales","rate"], ppt_6.shapes[7],
+                         [list_Rolling(12 - i) for i in range(12)])
+    run_ppt_chatdata_add("p6_04", sql_list("sql_ppt_6_04"), ["rate"], ppt_6.shapes[1],
+                         [list_Rolling(12 - i) for i in range(12)])
+
+    ppt_6_table = ppt_6.shapes[0]
+    KPI_review_lstyear = \
+        run_ppt_chartdata_replace.chartdata_replace_get(ppt_6_table,sql_list("sql_ppt_6_lstyear_table"),['Qty of active member','近12个月sales','order','qty','AUS','IPT'])
+    KPI_review_lstyear_rep = run_ppt_chartdata_replace.chartdata_replace_get(ppt_6_table,sql_list("sql_ppt_6_lstyear_rep"),['Repurchase rate'])
+    KPI_review_lstyear_ret = run_ppt_chartdata_replace.chartdata_replace_get(ppt_6_table,sql_list("sql_ppt_6_lstyear_ret"),['Retention rate'])
+    KPI_review = run_ppt_chartdata_replace.chartdata_replace_get(ppt_6_table,sql_list("sql_ppt_6_table"),['Qty of active member', '近12个月sales', 'order','qty', 'AUS', 'IPT'])
+    KPI_review_rep = run_ppt_chartdata_replace.chartdata_replace_get(ppt_6_table,sql_list("sql_ppt_6_04"),['Repurchase rate'])
+    KPI_review_ret = run_ppt_chartdata_replace.chartdata_replace_get(ppt_6_table,sql_list("sql_ppt_6_02"),['Retention rate'])
+    ppt_6_table.table.cell(0,1).text = 'By '+TM_EN+' '+YEAR_EN
+    ppt_6_table.table.cell(0, 2).text = 'By ' + TM_EN + ' ' + YEAR_NY
+    for i in (1,2):
+        ppt_6_table.table.cell(0,i).text_frame.paragraphs[0].font.color.rgb = RGBColor(225, 255, 255)
+        ppt_6_table.table.cell(0,i).text_frame.paragraphs[0].font.size = Pt(24)
+
+    ppt_6_table.table.cell(1, 1).text = format(int(KPI_review_lstyear.iloc[0][1]),",")
+    ppt_6_table.table.cell(2, 1).text = format(int(KPI_review_lstyear.iloc[0][2]/1000), ",")+'k'
+    ppt_6_table.table.cell(3, 1).text = format(int(KPI_review_lstyear.iloc[0][5]), ",")
+    ppt_6_table.table.cell(4, 1).text = '{:.1f}'.format(KPI_review_lstyear.iloc[0][6])
+    ppt_6_table.table.cell(5, 1).text = '{:.1%}'.format(KPI_review_lstyear_rep.iloc[0][1])
+    ppt_6_table.table.cell(6, 1).text = '{:.1%}'.format(KPI_review_lstyear_ret.iloc[0][1])
+
+    ppt_6_table.table.cell(1, 2).text = format(int(KPI_review.iloc[0][1]), ",")
+    ppt_6_table.table.cell(2, 2).text = format(int(KPI_review.iloc[0][2] / 1000), ",") + 'k'
+    ppt_6_table.table.cell(3, 2).text = format(int(KPI_review.iloc[0][5]), ",")
+    ppt_6_table.table.cell(4, 2).text = '{:.1f}'.format(KPI_review.iloc[0][6])
+    ppt_6_table.table.cell(5, 2).text = '{:.1%}'.format(KPI_review_rep.iloc[0][1])
+    ppt_6_table.table.cell(6, 2).text = '{:.1%}'.format(KPI_review_ret.iloc[0][1])
+
+    ppt_6_table.table.cell(1, 3).text = '{:.0%}'.format((KPI_review.iloc[0][1]-KPI_review_lstyear.iloc[0][1])/KPI_review_lstyear.iloc[0][1])
+    ppt_6_table.table.cell(2, 3).text = '{:.0%}'.format((KPI_review.iloc[0][2]-KPI_review_lstyear.iloc[0][2])/KPI_review_lstyear.iloc[0][2])
+    ppt_6_table.table.cell(3, 3).text = '{:.0%}'.format((KPI_review.iloc[0][5]-KPI_review_lstyear.iloc[0][5])/KPI_review_lstyear.iloc[0][5])
+    ppt_6_table.table.cell(4, 3).text = '{:.0%}'.format((KPI_review.iloc[0][6]-KPI_review_lstyear.iloc[0][6])/KPI_review_lstyear.iloc[0][6])
+    ppt_6_table.table.cell(5, 3).text = '{:.0%}'.format((KPI_review_rep.iloc[0][1]-KPI_review_lstyear_rep.iloc[0][1])/KPI_review_lstyear_rep.iloc[0][1])
+    ppt_6_table.table.cell(6, 3).text = '{:.0%}'.format((KPI_review_rep.iloc[0][1]-KPI_review_lstyear_rep.iloc[0][1])/KPI_review_lstyear_rep.iloc[0][1])
+
+    for i in range(1,7):
+        for j in range(1,4):
+            ppt_6_table.table.cell(i, j).text_frame.paragraphs[0].font.size = Pt(24)
+
+    ppt_6.shapes[19].text='Q'
+    for i in (9,13,15,17):
+        ppt_6.shapes[i].text_frame.paragraphs[0].text = NM_EN + '. ' + YEAR_LY
+        ppt_6.shapes[i].text_frame.paragraphs[0].font.bold = True
+
+    for i in (10,14,16,18):
+        ppt_6.shapes[i].text_frame.paragraphs[0].text = TM_EN + '. ' + YEAR_EN
+        ppt_6.shapes[i].text_frame.paragraphs[0].font.bold = True
+
+    ppt_6.shapes[12].text_frame.paragraphs[0].text = 'Active member volume(purchased in rolling 12 months)  is  by the end of '\
+                                                     +TM_EN + '. ' + YEAR_EN+', '+increase_decrease((KPI_review.iloc[0][1]-KPI_review_lstyear.iloc[0][1])/KPI_review_lstyear.iloc[0][1])+' than LY.'
+    ppt_6.shapes[12].text_frame.paragraphs[1].text = 'Active members’ revenue (purchased in rolling 12 month) ' \
+                                                     +increase_decrease((KPI_review.iloc[0][2]-KPI_review_lstyear.iloc[0][2])/KPI_review_lstyear.iloc[0][2])+' than LY.'
+    ppt_6.shapes[12].text_frame.paragraphs[2].text = 'Repurchase rate is '+'{:.1%}'.format(KPI_review_rep.iloc[0][1])+' in '+TM_EN + ', retention ration is only '\
+                                                     +'{:.1%}'.format(KPI_review_ret.iloc[0][1])+'.'
+    ppt_6.shapes[19].text_frame.paragraphs[0].text = '*Data cut of data: '+TM_EN+', '+YEAR_EN
+    ppt_6.shapes[19].text_frame.paragraphs[0].font.color.rgb = RGBColor(0, 0, 0)
+
+    print("---------------ppt6 CRM KPIs Review 更新完成--------------------------")
+
+    #ppt-7
+    ppt_7 = read_pptx.slides[6]
+    def ppt_7_write_data_rows(_sheet_name, _series_name, _data_xls_name, _data_xls_name_new,nowindex,data_new):
+        data = pd.DataFrame(pd.read_excel(_data_xls_name, sheet_name=_sheet_name, header=0))
+        nrows = data.shape[0]
+        data.loc[nrows]=data_new.loc[0].tolist()
+        data.to_excel(_data_xls_name_new,sheet_name=_sheet_name,index = False)
+    ppt_7_01_data_1 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_01_FY19"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_01_data_index = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_01", "ks_data.xls")
+    ppt_7_write_data_rows("p7_01",["Capture","Not Capture"],"ks_data.xls","ks_data_new.xls",ppt_7_01_data_index,ppt_7_01_data_1)
+
+    ppt_7_01_data_2 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_01_FY20"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_01_data_index_2 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_01", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_01",["Capture","Not Capture"],"ks_data_new.xls","ks_data_new.xls",ppt_7_01_data_index_2,ppt_7_01_data_2)
+
+    ppt_7_01_data_3 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_01_blank01"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_01_data_index_3 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_01", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_01", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_01_data_index_3, ppt_7_01_data_3)
+
+    ppt_7_01_data_4 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_01_blank02"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_01_data_index_4 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_01", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_01", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_01_data_index_4, ppt_7_01_data_4)
+
+    ppt_7_01_data_5 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_01_YTD19"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_01_data_index_5 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_01", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_01", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_01_data_index_5, ppt_7_01_data_5)
+
+    ppt_7_01_data_6 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_01_YTD20"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_01_data_index_6 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_01", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_01", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_01_data_index_6, ppt_7_01_data_6)
+
+    ppt_7_01_chat_data_sheet = xlrd.open_workbook("ks_data_new.xls").sheet_by_name("p7_01")
+    ppt_7_01_chat_data =[]
+    ppt_7_01_chat_data_categories = ppt_7_01_chat_data_sheet.col_values(0, 1, ppt_7_01_chat_data_sheet.nrows)
+    for i in range(1, len(["Capture", "Not Capture"]) + 1):
+        list_01 = ppt_7_01_chat_data_sheet.col_values(i, 1, ppt_7_01_chat_data_sheet.nrows)
+        list_01 = [float(m) for m in list_01]
+        ppt_7_01_chat_data.append(list_01)
+    run_ppt_chatdata_add.chatdata_add(ppt_7.shapes[8],ppt_7_01_chat_data,["Capture", "Not Capture"],ppt_7.shapes[8],ppt_7_01_chat_data_categories)
+
+    ppt_7_02_data_1 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_02_FY19"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_02_data_index = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_02", "ks_data.xls")
+    ppt_7_write_data_rows("p7_02", ["Capture", "Not Capture"], "ks_data.xls", "ks_data_new.xls", ppt_7_02_data_index,
+                          ppt_7_02_data_1)
+
+    ppt_7_02_data_2 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_02_FY20"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_02_data_index_2 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_02", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_02", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_02_data_index_2, ppt_7_02_data_2)
+
+    ppt_7_02_data_3 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_02_blank01"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_02_data_index_3 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_02", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_02", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_02_data_index_3, ppt_7_02_data_3)
+
+    ppt_7_02_data_4 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_02_blank02"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_02_data_index_4 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_02", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_02", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_02_data_index_4, ppt_7_02_data_4)
+
+    ppt_7_02_data_5 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_02_YTD19"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_02_data_index_5 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_02", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_02", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_02_data_index_5, ppt_7_02_data_5)
+
+    ppt_7_02_data_6 = run_ppt_chatdata_add.chatdata_add_get(ppt_7.shapes[3], sql_list("sql_ppt_7_02_YTD20"),
+                                                            ["Capture", "Not Capture"])
+    ppt_7_02_data_index_6 = run_ppt_chatdata_add.readlines(ppt_7.shapes[3], "p7_02", "ks_data_new.xls")
+    ppt_7_write_data_rows("p7_02", ["Capture", "Not Capture"], "ks_data_new.xls", "ks_data_new.xls",
+                          ppt_7_02_data_index_6, ppt_7_02_data_6)
+
+    ppt_7_02_chat_data_sheet = xlrd.open_workbook("ks_data_new.xls").sheet_by_name("p7_02")
+    ppt_7_02_chat_data = []
+    ppt_7_02_chat_data_categories = ppt_7_02_chat_data_sheet.col_values(0, 1, ppt_7_02_chat_data_sheet.nrows)
+    for i in range(1, len(["Capture", "Not Capture"]) + 1):
+        list_03 = ppt_7_02_chat_data_sheet.col_values(i, 1, ppt_7_02_chat_data_sheet.nrows)
+        list_03 = [float(m) for m in list_03]
+        ppt_7_02_chat_data.append(list_03)
+    run_ppt_chatdata_add.chatdata_add(ppt_7.shapes[9], ppt_7_02_chat_data, ["Capture", "Not Capture"], ppt_7.shapes[9],
+                                      ppt_7_02_chat_data_categories)
+
+    ppt_7_table = ppt_7.shapes[3]
+    ppt_7_table_data_01 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_7_table, sql_list("sql_ppt_7_03_FP19"),
+                                                                       ['Name', 'Mobile', 'Email', 'Address','Gender','Birthday','Bind wechat'])
+    ppt_7_table_data_02 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_7_table, sql_list("sql_ppt_7_03_FP20"),
+                                                                       ['Name', 'Mobile', 'Email', 'Address','Gender','Birthday','Bind wechat'])
+    ppt_7_table_data_03 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_7_table, sql_list("sql_ppt_7_03_OL19"),
+                                                                       ['Name', 'Mobile', 'Email', 'Address','Gender','Birthday','Bind wechat'])
+    ppt_7_table_data_04 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_7_table, sql_list("sql_ppt_7_03_OL20"),
+                                                                       ['Name', 'Mobile', 'Email', 'Address','Gender','Birthday','Bind wechat'])
+    for i in range(0, 7):
+        ppt_7_table.table.cell(i+2, 1).text = '{:.0%}'.format(ppt_7_table_data_01.iloc[0][i+1])
+        ppt_7_table.table.cell(i+2, 2).text = '{:.0%}'.format(ppt_7_table_data_02.iloc[0][i+1])
+        ppt_7_table.table.cell(i+2, 3).text = '{:.0%}'.format((ppt_7_table_data_02.iloc[0][i+1] - ppt_7_table_data_01.iloc[0][i+1])/ppt_7_table_data_01.iloc[0][i+1])
+        ppt_7_table.table.cell(i+2, 4).text = '{:.0%}'.format(ppt_7_table_data_03.iloc[0][i+1])
+        ppt_7_table.table.cell(i+2, 5).text = '{:.0%}'.format(ppt_7_table_data_04.iloc[0][i+1])
+        ppt_7_table.table.cell(i+2, 6).text = '{:.0%}'.format((ppt_7_table_data_04.iloc[0][i+1] - ppt_7_table_data_03.iloc[0][i+1])/ppt_7_table_data_03.iloc[0][i+1])
+    for i in range(0,9):
+        for j in range(1,7):
+            ppt_7_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(24)
+
+    ppt_7.shapes[6].text_frame.paragraphs[0].text = '*Data cut of data: '+TM_EN+'. , '+YEAR_EN
+    ppt_7.shapes[6].text_frame.paragraphs[0].font.color.rgb = RGBColor(0, 0, 0)
+    ppt_7.shapes[7].text_frame.paragraphs[0].text = 'FY20 YTD specialty data capture rate is '+'{:.0%}'.format(ppt_7_01_data_6.iloc[0][1])\
+                                                    +'  and outlet data capture rate is '+'{:.0%}'.format(ppt_7_02_data_6.iloc[0][1])
+
+    print("---------------ppt7 Data Capture by Month 更新完成--------------------------")
+
+    #ppt-8
+    ppt_8 = read_pptx.slides[7]
+    run_ppt_chartdata_replace(ppt_8.shapes[0],sql_list("sql_ppt_8_01"),["Quantity"])
+    run_ppt_chartdata_replace(ppt_8.shapes[1], sql_list("sql_ppt_8_02"), ["Sales pene"])
+    run_ppt_chatdata_add("p8_01",sql_list("sql_ppt_8_03"),["Y2020"],ppt_8.shapes[5],['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'])
+    run_ppt_chatdata_add("p8_02",sql_list("sql_ppt_8_04"),["Y2020"],ppt_8.shapes[10],['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'])
+    run_ppt_chatdata_add("p8_03",sql_list("sql_ppt_8_05"),["Y2020"],ppt_8.shapes[11],['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'])
+    run_ppt_chatdata_add("p8_04",sql_list("sql_ppt_8_06"),["Y2020"],ppt_8.shapes[12],['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'])
+
+    Monthly_customer = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_8_01_count"),['Quantity'])
+    Monthly_sales = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[9], sql_list("sql_ppt_8_02_count"),['Sales pene'])
+    for i in range(0,4):
+        ppt_8.shapes[14].table.cell(i,0).text = format(int(Monthly_customer.iloc[i][1]),",")
+        ppt_8.shapes[14].table.cell(i, 0).text_frame.paragraphs[0].font.color.rgb = RGBColor(225, 119, 145)
+        ppt_8.shapes[14].table.cell(i, 0).text_frame.paragraphs[0].font.bold = True
+        ppt_8.shapes[14].table.cell(i, 0).text_frame.paragraphs[0].font.size = Pt(20)
+    for i in range(0,4):
+        ppt_8.shapes[9].table.cell(i,0).text = str(int(Monthly_sales.iloc[i][1]/1000)) + 'k'
+        ppt_8.shapes[9].table.cell(i, 0).text_frame.paragraphs[0].font.color.rgb = RGBColor(225, 119, 145)
+        ppt_8.shapes[9].table.cell(i, 0).text_frame.paragraphs[0].font.bold = True
+        ppt_8.shapes[9].table.cell(i, 0).text_frame.paragraphs[0].font.size = Pt(20)
+
+    Monthly_customer_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_8_01"),['Quantity'])
+    Monthly_sales_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[9], sql_list("sql_ppt_8_02"),['Sales pene'])
+    ppt_8.shapes[3].text = '*Data cut of data: '+TM_EN+'. , '+YEAR_EN
+    ppt_8.shapes[6].text_frame.paragraphs[0].text = '*FY20 Diamond customer  rate is  '+'{:.0%}'.format(Monthly_customer_percent.iloc[0][1])\
+                                                    +'%, Gold customer rate is  '+'{:.0%}'.format(Monthly_customer_percent.iloc[1][1])+', Silver customer rate is '+'{:.0%}'.format(Monthly_customer_percent.iloc[2][1])\
+                                                    +', Member customer rate is '+'{:.0%}'.format(Monthly_customer_percent.iloc[3][1])+';'
+    ppt_8.shapes[6].text_frame.paragraphs[1].text = '*FY20 Diamond sales rate is '+'{:.0%}'.format(Monthly_sales_percent.iloc[0][1])\
+                                                    +', Gold sales rate is '+'{:.0%}'.format(Monthly_sales_percent.iloc[1][1])+', Silver sales rate is '+'{:.0%}'.format(Monthly_sales_percent.iloc[2][1])\
+                                                    +', Member sales rate is '+'{:.0%}'.format(Monthly_sales_percent.iloc[3][1])+';'
+    for i in range(0,2):
+        ppt_8.shapes[6].text_frame.paragraphs[i].font.size = Pt(28)
+
+    print("---------------ppt8 Monthly customer and Sales Contribution 更新完成--------------------------")
+
+    #ppt-9
+    ppt_9 = read_pptx.slides[8]
+    run_ppt_chartdata_replace(ppt_9.shapes[6],sql_list("sql_ppt_9_01"),["Quantity"])
+    run_ppt_chartdata_replace(ppt_9.shapes[28], sql_list("sql_ppt_9_02"), ["sales"])
+    run_ppt_chartdata_replace(ppt_9.shapes[21], sql_list("sql_ppt_9_03"), ["Quantity"])
+    run_ppt_chartdata_replace(ppt_9.shapes[18], sql_list("sql_ppt_9_04"), ["sales"])
+    run_ppt_chartdata_replace(ppt_9.shapes[27], sql_list("sql_ppt_9_05"), ["Quantity"])
+    run_ppt_chartdata_replace(ppt_9.shapes[24], sql_list("sql_ppt_9_06"), ["sales"])
+    run_ppt_chatdata_add("p9_01",sql_list("sql_ppt_9_07"),["FY20","FY19"],ppt_9.shapes[29],['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'])
+    run_ppt_chatdata_add("p9_02",sql_list("sql_ppt_9_08"),["FY20","FY19"],ppt_9.shapes[30],['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'])
+    run_ppt_chatdata_add("p9_03",sql_list("sql_ppt_9_09"),["FY20","FY19"],ppt_9.shapes[31],['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'])
+    run_ppt_chatdata_add("p9_04",sql_list("sql_ppt_9_10"),["FY20","FY19"],ppt_9.shapes[32],['Jul','Aug','Sep','Oct','Nov','Dec','Jan','Feb','Mar','Apr','May','Jun'])
+
+    new_existing_customer_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_9_01"),['Quantity'])
+    new_existing_sales_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_9_02"), ['sales'])
+    new_existing_customer = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_9_01_count"),['Quantity'])
+    new_existing_sales = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_9_02_count"),['sales'])
+    new_existing_customer_ly = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_9_01_ly"),['Quantity'])
+    new_existing_sales_ly = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_9_02_ly"),['sales'])
+
+    ppt_9.shapes[1].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+    ppt_9.shapes[3].text_frame.paragraphs[0].text = 'In FY20, new customer volume shared '+ '{:.0%}'.format(new_existing_customer_percent.iloc[0][1])\
+                           +'% of total customer and contributed '+'{:.0%}'.format(new_existing_sales_percent.iloc[0][1])\
+                           +' of total revenue, '+increase_decrease((new_existing_sales.iloc[0][1]-new_existing_sales_ly.iloc[0][1])/new_existing_sales_ly.iloc[0][1])+' VS LY'
+    ppt_9.shapes[3].text_frame.paragraphs[0].font.size = Pt(28)
+    ppt_9.shapes[8].text_frame.paragraphs[0].text = '{:.0%}'.format((new_existing_sales.iloc[0][1]-new_existing_sales_ly.iloc[0][1])/new_existing_sales_ly.iloc[0][1])
+    ppt_9.shapes[8].text_frame.paragraphs[0].font.color.rgb = RGBColor(244, 177, 131)
+    ppt_9.shapes[9].text_frame.paragraphs[0].text = '{:.0%}'.format((new_existing_sales.iloc[1][1] - new_existing_sales_ly.iloc[1][1]) / new_existing_sales_ly.iloc[1][1])
+    ppt_9.shapes[9].text_frame.paragraphs[0].font.color.rgb = RGBColor(0, 176, 80)
+    ppt_9.shapes[10].text_frame.paragraphs[0].text = '{:.0%}'.format((new_existing_customer.iloc[0][1] - new_existing_customer_ly.iloc[0][1]) / new_existing_customer_ly.iloc[0][1])
+    ppt_9.shapes[10].text_frame.paragraphs[0].font.color.rgb = RGBColor(244, 177, 131)
+    ppt_9.shapes[11].text_frame.paragraphs[0].text = '{:.0%}'.format((new_existing_customer.iloc[1][1] - new_existing_customer_ly.iloc[1][1]) / new_existing_customer_ly.iloc[1][1])
+    ppt_9.shapes[11].text_frame.paragraphs[0].font.color.rgb = RGBColor(0, 176, 80)
+
+    ppt_9_table3 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_9_03_count"),['Quantity'])
+    ppt_9_table4 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_9_04_count"),['sales'])
+    ppt_9_table5 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_9_05_count"),['Quantity'])
+    ppt_9_table6= run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_9_06_count"),['sales'])
+
+    ppt_9.shapes[36].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(new_existing_sales.iloc[0][1]/1000),",")+'k'
+    ppt_9.shapes[36].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(new_existing_sales.iloc[1][1] / 1000),",") + 'k'
+    ppt_9.shapes[37].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(new_existing_customer.iloc[0][1]),",")
+    ppt_9.shapes[37].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(new_existing_customer.iloc[1][1]),",")
+    ppt_9.shapes[38].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table3.iloc[0][1]), ",")
+    ppt_9.shapes[38].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table3.iloc[1][1]), ",")
+    ppt_9.shapes[38].table.cell(2, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table3.iloc[2][1]), ",")
+    ppt_9.shapes[38].table.cell(3, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table3.iloc[3][1]), ",")
+    ppt_9.shapes[39].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table4.iloc[0][1]/ 1000), ",") + 'k'
+    ppt_9.shapes[39].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table4.iloc[1][1]/ 1000), ",") + 'k'
+    ppt_9.shapes[39].table.cell(2, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table4.iloc[2][1]/ 1000), ",") + 'k'
+    ppt_9.shapes[39].table.cell(3, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table4.iloc[3][1]/ 1000), ",") + 'k'
+    ppt_9.shapes[41].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table5.iloc[0][1]), ",")
+    ppt_9.shapes[41].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table5.iloc[1][1]), ",")
+    ppt_9.shapes[41].table.cell(2, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table5.iloc[2][1]), ",")
+    ppt_9.shapes[41].table.cell(3, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table5.iloc[3][1]), ",")
+    ppt_9.shapes[40].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table6.iloc[0][1] / 1000),",") + 'k'
+    ppt_9.shapes[40].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table6.iloc[1][1] / 1000),",") + 'k'
+    ppt_9.shapes[40].table.cell(2, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table6.iloc[2][1] / 1000),",") + 'k'
+    ppt_9.shapes[40].table.cell(3, 0).text_frame.paragraphs[0].text = format(int(ppt_9_table6.iloc[3][1] / 1000),",") + 'k'
+
+
+    for i in (36,37):
+        for j in (0,1):
+            ppt_9.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.color.rgb = RGBColor(225, 119, 145)
+            ppt_9.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.bold = True
+            ppt_9.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.size = Pt(18)
+    for i in (38,39,40,41):
+        for j in (0,1,2,3):
+            ppt_9.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.color.rgb = RGBColor(225, 119, 145)
+            ppt_9.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.bold = True
+            ppt_9.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.size = Pt(18)
+
+    print("---------------ppt9 New & existing customer - Specialty 更新完成--------------------------")
+
+    #ppt-10
+    ppt_10 = read_pptx.slides[9]
+    run_ppt_chartdata_replace(ppt_10.shapes[6], sql_list("sql_ppt_10_01"), ["Quantity"])
+    run_ppt_chartdata_replace(ppt_10.shapes[28], sql_list("sql_ppt_10_02"), ["sales"])
+    run_ppt_chartdata_replace(ppt_10.shapes[21], sql_list("sql_ppt_10_03"), ["Quantity"])
+    run_ppt_chartdata_replace(ppt_10.shapes[18], sql_list("sql_ppt_10_04"), ["sales"])
+    run_ppt_chartdata_replace(ppt_10.shapes[27], sql_list("sql_ppt_10_05"), ["Quantity"])
+    run_ppt_chartdata_replace(ppt_10.shapes[24], sql_list("sql_ppt_10_06"), ["sales"])
+    run_ppt_chatdata_add("p10_01", sql_list("sql_ppt_10_07"), ["FY20", "FY19"], ppt_10.shapes[29],['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'])
+    run_ppt_chatdata_add("p10_02", sql_list("sql_ppt_10_08"), ["FY20", "FY19"], ppt_10.shapes[30],['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'])
+    run_ppt_chatdata_add("p10_03", sql_list("sql_ppt_10_09"), ["FY20", "FY19"], ppt_10.shapes[31],['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'])
+    run_ppt_chatdata_add("p10_04", sql_list("sql_ppt_10_10"), ["FY20", "FY19"], ppt_10.shapes[32],['Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'])
+
+    new_existing_customer_percent_ol = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_10_01"),['Quantity'])
+    new_existing_sales_percent_ol = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_10_02"), ['sales'])
+    new_existing_customer_ol = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_10_01_count"),['Quantity'])
+    new_existing_sales_ol = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_10_02_count"), ['sales'])
+    new_existing_customer_ly_ol = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_10_01_ly"),['Quantity'])
+    new_existing_sales_ly_ol = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_10_02_ly"), ['sales'])
+
+    ppt_10.shapes[1].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+    ppt_10.shapes[3].text_frame.paragraphs[0].text = 'In FY20, new customer volume shared ' + '{:.0%}'.format(new_existing_customer_percent_ol.iloc[0][1]) \
+                                                    + '% of total customer and contributed ' + '{:.0%}'.format(new_existing_sales_percent_ol.iloc[0][1]) \
+                                                    + ' of total revenue, ' + increase_decrease((new_existing_sales_ol.iloc[0][1] - new_existing_sales_ly_ol.iloc[0][1]) / new_existing_sales_ly_ol.iloc[0][1]) + ' VS LY'
+    ppt_10.shapes[3].text_frame.paragraphs[0].font.size = Pt(28)
+    ppt_10.shapes[8].text_frame.paragraphs[0].text = '{:.0%}'.format((new_existing_sales_ol.iloc[0][1] - new_existing_sales_ly_ol.iloc[0][1]) / new_existing_sales_ly_ol.iloc[0][1])
+    ppt_10.shapes[8].text_frame.paragraphs[0].font.color.rgb = RGBColor(244, 177, 131)
+    ppt_10.shapes[9].text_frame.paragraphs[0].text = '{:.0%}'.format((new_existing_sales_ol.iloc[1][1] - new_existing_sales_ly_ol.iloc[1][1]) / new_existing_sales_ly_ol.iloc[1][1])
+    ppt_10.shapes[9].text_frame.paragraphs[0].font.color.rgb = RGBColor(0, 176, 80)
+    ppt_10.shapes[10].text_frame.paragraphs[0].text = '{:.0%}'.format((new_existing_customer_ol.iloc[0][1] - new_existing_customer_ly_ol.iloc[0][1]) / new_existing_customer_ly_ol.iloc[0][1])
+    ppt_10.shapes[10].text_frame.paragraphs[0].font.color.rgb = RGBColor(244, 177, 131)
+    ppt_10.shapes[11].text_frame.paragraphs[0].text = '{:.0%}'.format((new_existing_customer_ol.iloc[1][1] - new_existing_customer_ly_ol.iloc[1][1]) / new_existing_customer_ly_ol.iloc[1][1])
+    ppt_10.shapes[11].text_frame.paragraphs[0].font.color.rgb = RGBColor(0, 176, 80)
+
+    ppt_10_table3 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_10_03_count"),['Quantity'])
+    ppt_10_table4 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_10_04_count"),['sales'])
+    ppt_10_table5 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_10_05_count"),['Quantity'])
+    ppt_10_table6 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_10_06_count"),['sales'])
+
+    ppt_10.shapes[36].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(new_existing_sales_ol.iloc[0][1] / 1000),",") + 'k'
+    ppt_10.shapes[36].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(new_existing_sales_ol.iloc[1][1] / 1000),",") + 'k'
+    ppt_10.shapes[37].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(new_existing_customer_ol.iloc[0][1]), ",")
+    ppt_10.shapes[37].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(new_existing_customer_ol.iloc[1][1]), ",")
+    ppt_10.shapes[38].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table3.iloc[0][1]), ",")
+    ppt_10.shapes[38].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table3.iloc[1][1]), ",")
+    ppt_10.shapes[38].table.cell(2, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table3.iloc[2][1]), ",")
+    ppt_10.shapes[38].table.cell(3, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table3.iloc[3][1]), ",")
+    ppt_10.shapes[39].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table4.iloc[0][1] / 1000),",") + 'k'
+    ppt_10.shapes[39].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table4.iloc[1][1] / 1000),",") + 'k'
+    ppt_10.shapes[39].table.cell(2, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table4.iloc[2][1] / 1000),",") + 'k'
+    ppt_10.shapes[39].table.cell(3, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table4.iloc[3][1] / 1000),",") + 'k'
+    ppt_10.shapes[41].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table5.iloc[0][1]), ",")
+    ppt_10.shapes[41].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table5.iloc[1][1]), ",")
+    ppt_10.shapes[41].table.cell(2, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table5.iloc[2][1]), ",")
+    ppt_10.shapes[41].table.cell(3, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table5.iloc[3][1]), ",")
+    ppt_10.shapes[40].table.cell(0, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table6.iloc[0][1] / 1000),",") + 'k'
+    ppt_10.shapes[40].table.cell(1, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table6.iloc[1][1] / 1000),",") + 'k'
+    ppt_10.shapes[40].table.cell(2, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table6.iloc[2][1] / 1000),",") + 'k'
+    ppt_10.shapes[40].table.cell(3, 0).text_frame.paragraphs[0].text = format(int(ppt_10_table6.iloc[3][1] / 1000),",") + 'k'
+
+    for i in (36, 37):
+        for j in (0, 1):
+            ppt_10.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.color.rgb = RGBColor(225, 119, 145)
+            ppt_10.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.bold = True
+            ppt_10.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.size = Pt(18)
+    for i in (38, 39, 40, 41):
+        for j in (0, 1, 2, 3):
+            ppt_10.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.color.rgb = RGBColor(225, 119, 145)
+            ppt_10.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.bold = True
+            ppt_10.shapes[i].table.cell(j, 0).text_frame.paragraphs[0].font.size = Pt(18)
+
+    print("---------------ppt10 New & existing customer –Outlet Store  更新完成--------------------------")
+
+    #ppt-11
+    ppt_11 = read_pptx.slides[10]
+    run_ppt_chatdata_add("p11_01",sql_list("sql_ppt_11_01"),["percent"],ppt_11.shapes[2],[list_Rolling(12 - i) for i in range(12)])
+    run_ppt_chatdata_add("p11_02", sql_list("sql_ppt_11_02"), ["percent"], ppt_11.shapes[7],[list_Rolling(12 - i) for i in range(12)])
+    run_ppt_chatdata_add("p11_05", sql_list("sql_ppt_11_05"), ["percent"], ppt_11.shapes[5],[list_Rolling(12 - i) for i in range(12)])
+    run_ppt_chatdata_add("p11_04", sql_list("sql_ppt_11_04"), ["percent"], ppt_11.shapes[3],[list_Rolling(12 - i) for i in range(12)])
+    run_ppt_chatdata_add("p11_03", sql_list("sql_ppt_11_03"), ["percent"], ppt_11.shapes[11],[list_Rolling(12 - i) for i in range(12)])
+    run_ppt_chatdata_add("p11_06", sql_list("sql_ppt_11_06"), ["percent"], ppt_11.shapes[13],[list_Rolling(12 - i) for i in range(12)])
+
+    YTD_new_repurchase_rate_FP = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_11_ytd_fp"),['percent'])
+    YTD_new_repurchase_rate_OL = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_11_ytd_ol"),['percent'])
+
+    YTD_new_repurchase_rate_FP_1 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_11_01"),['percent'])
+    YTD_new_repurchase_rate_OL_1 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_11_04"),['percent'])
+
+    YTD_new_repurchase_rate_FP_3 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_11_02"),['percent'])
+    YTD_new_repurchase_rate_OL_3 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_11_05"),['percent'])
+
+    YTD_new_repurchase_rate_FP_6 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_11_03"),['percent'])
+    YTD_new_repurchase_rate_OL_6 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_11_06"),['percent'])
+
+    YTD_new_repurchase_rate_FP_1_LM = repurchase_LM("p11_01")
+    YTD_new_repurchase_rate_OL_1_LM = repurchase_LM("p11_04")
+
+    YTD_new_repurchase_rate_FP_3_LM = repurchase_LM("p11_02")
+    YTD_new_repurchase_rate_OL_3_LM = repurchase_LM("p11_05")
+
+    YTD_new_repurchase_rate_FP_6_LM = repurchase_LM("p11_03")
+    YTD_new_repurchase_rate_OL_6_LM = repurchase_LM("p11_06")
+
+    ppt_11.shapes[8].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+    ppt_11.shapes[9].text_frame.paragraphs[1].text = 'YTD new repurchase rate is '+ '{:.0%}'.format(YTD_new_repurchase_rate_FP.iloc[0][1])
+    ppt_11.shapes[9].text_frame.paragraphs[2].text = 'In '+TM_EN+' '+YEAR_EN+', new repeat rate is '\
+                                                     +'{:.0%}'.format(YTD_new_repurchase_rate_FP_1.iloc[0][1])+'(1 month, vs LM '\
+                                                     +vs_LM((YTD_new_repurchase_rate_FP_1.iloc[0][1]-Decimal(YTD_new_repurchase_rate_FP_1_LM))/Decimal(YTD_new_repurchase_rate_FP_1_LM))\
+                                                     +') and '+'{:.0%}'.format(YTD_new_repurchase_rate_FP_3.iloc[0][1])+' (3 month, vs LM '\
+                                                     +vs_LM((YTD_new_repurchase_rate_FP_3.iloc[0][1]-Decimal(YTD_new_repurchase_rate_FP_3_LM))/Decimal(YTD_new_repurchase_rate_FP_3_LM))\
+                                                     +')  and '+'{:.0%}'.format(YTD_new_repurchase_rate_FP_6.iloc[0][1])+'( 6 month vs LM'\
+                                                     +vs_LM((YTD_new_repurchase_rate_FP_6.iloc[0][1]-Decimal(YTD_new_repurchase_rate_FP_6_LM))/Decimal(YTD_new_repurchase_rate_FP_6_LM))+' ) in specialty store.'
+    ppt_11.shapes[9].text_frame.paragraphs[1].text = 'YTD new repurchase rate is ' + '{:.0%}'.format(YTD_new_repurchase_rate_OL.iloc[0][1])
+    ppt_11.shapes[10].text_frame.paragraphs[2].text = 'In ' + TM_EN + ' ' + YEAR_EN + ', new repeat rate is ' \
+                                                     + '{:.0%}'.format(YTD_new_repurchase_rate_OL_1.iloc[0][1]) + '(1 month, vs LM ' \
+                                                     + vs_LM((YTD_new_repurchase_rate_OL_1.iloc[0][1] - Decimal(YTD_new_repurchase_rate_OL_1_LM)) / Decimal(YTD_new_repurchase_rate_OL_1_LM)) \
+                                                     + ') and ' + '{:.0%}'.format(YTD_new_repurchase_rate_OL_3.iloc[0][1]) + ' (3 month, vs LM ' \
+                                                     + vs_LM((YTD_new_repurchase_rate_OL_3.iloc[0][1] - Decimal(YTD_new_repurchase_rate_OL_3_LM)) / Decimal(YTD_new_repurchase_rate_OL_3_LM)) \
+                                                     + ')  and ' + '{:.0%}'.format(YTD_new_repurchase_rate_OL_6.iloc[0][1]) + '( 6 month vs LM' \
+                                                     + vs_LM((YTD_new_repurchase_rate_OL_6.iloc[0][1] - Decimal(YTD_new_repurchase_rate_OL_6_LM)) / Decimal(YTD_new_repurchase_rate_OL_6_LM)) + ' ) in outlet store.'
+
+    print("---------------ppt11 Monthly New Repeat Rate 更新完成--------------------------")
+
+    #ppt-12
+    ppt_12 = read_pptx.slides[11]
+    run_ppt_chatdata_add("p12", sql_list("sql_ppt_12_01"), ["Inactive","Lapsed","At Risk","Active","Recent Active","NewBuyer"], ppt_12.shapes[1],
+                         [list_Rolling(12 - i) for i in range(12)])
+
+    Customer_Lifecycle_Movement_FP = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_12_02"),['NewBuyer','Recent Active','Active','At Risk','Lapsed','Inactive'])
+    Customer_Lifecycle_FP_TM = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_12_03"),['count'])
+    Customer_Lifecycle_FP_LM = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_12_04"), ['count'])
+
+    Customer_Lifecycle_FP_percent_LM_data = pd.DataFrame(pd.read_excel('ks_data.xls', sheet_name="p12", header=0))
+    Customer_Lifecycle_FP_percent_LM_nrows = Customer_Lifecycle_FP_percent_LM_data.shape[0]
+    Customer_Lifecycle_FP_percent_LM = Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows-1]
+    Customer_Lifecycle_FP_percent =run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14], sql_list("sql_ppt_12_01"),['Inactive','Lapsed','At Risk','Active','Recent Active','NewBuyer'])
+
+    ppt_12.shapes[3].table.cell(0, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_FP_percent.iloc[0][6]-
+                                                                                      Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows-1][6]))
+    ppt_12.shapes[3].table.cell(1, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_FP_percent.iloc[0][5] -
+                                                                            Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows - 1][5]))
+    ppt_12.shapes[3].table.cell(2, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_FP_percent.iloc[0][4] -
+                                                                            Decimal( Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows - 1][4]))
+    ppt_12.shapes[3].table.cell(3, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_FP_percent.iloc[0][3] -
+                                                                            Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows - 1][3]))
+    ppt_12.shapes[3].table.cell(4, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_FP_percent.iloc[0][2] -
+                                                                            Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows - 1][2]))
+    ppt_12.shapes[3].table.cell(5, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_FP_percent.iloc[0][1] -
+                                                                            Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows - 1][1]))
+    for i in range(0,6):
+        ppt_12.shapes[3].table.cell(i, 0).text_frame.paragraphs[0].font.size = Pt(18)
+        ppt_12.shapes[3].table.cell(i, 0).text_frame.paragraphs[0].font.bold = True
+
+    ppt_12.shapes[3].table.cell(1, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_FP.iloc[1][2],",")+' moved from New buyers'
+    ppt_12.shapes[3].table.cell(1, 1).text_frame.paragraphs[1].text = format(Customer_Lifecycle_Movement_FP.iloc[3][2],",")+' moved from Active'
+    ppt_12.shapes[3].table.cell(1, 1).text_frame.paragraphs[2].text = format(Customer_Lifecycle_Movement_FP.iloc[4][2],",") + ' moved from At Risk'
+    ppt_12.shapes[3].table.cell(1, 1).text_frame.paragraphs[3].text = format(Customer_Lifecycle_Movement_FP.iloc[5][2],",") + ' moved from Lapsed'
+    ppt_12.shapes[3].table.cell(1, 1).text_frame.paragraphs[4].text = format(Customer_Lifecycle_Movement_FP.iloc[6][2],",") + ' moved from Inactive'
+
+    ppt_12.shapes[3].table.cell(2, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_FP.iloc[1][3],",") + ' moved from New Buyer'
+    ppt_12.shapes[3].table.cell(2, 1).text_frame.paragraphs[1].text = format(Customer_Lifecycle_Movement_FP.iloc[2][3],",") + ' moved from Recent Actives'
+
+    ppt_12.shapes[3].table.cell(3, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_FP.iloc[3][4],",") + ' moved from Active'
+    ppt_12.shapes[3].table.cell(4, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_FP.iloc[4][5],",") + ' moved from At Risk'
+    ppt_12.shapes[3].table.cell(5, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_FP.iloc[5][6],",") + ' moved from At Lapsed'
+
+    for i in range(0,6):
+        ppt_12.shapes[8].table.cell(2, i+1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_FP_LM.iloc[i][1],",")
+        ppt_12.shapes[8].table.cell(3, i + 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_FP_TM.iloc[i][1], ",")
+        ppt_12.shapes[8].table.cell(2, i + 1).text_frame.paragraphs[0].font.size = Pt(14)
+        ppt_12.shapes[8].table.cell(3, i + 1).text_frame.paragraphs[0].font.size = Pt(14)
+
+    ppt_12.shapes[17].text_frame.paragraphs[0].text = 'The proportion of New Buyer and Recent Active, were '\
+                                                      +'{:.1%}'.format(Customer_Lifecycle_FP_percent.iloc[0][5]+Customer_Lifecycle_FP_percent.iloc[0][6])\
+                                                      +', decreased '+increase_decrease(Customer_Lifecycle_FP_percent.iloc[0][5]+Customer_Lifecycle_FP_percent.iloc[0][6]
+                                                                                                        -Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows-1][6])
+                                                                                                                 -Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows-1][5]))\
+                                                      +' by last month’s('+'{:.1%}'.format(Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows-1][6])
+                                                                                                                 +Decimal(Customer_Lifecycle_FP_percent_LM_data.iloc[Customer_Lifecycle_FP_percent_LM_nrows-1][5]))+').'
+    ppt_12.shapes[17].text_frame.paragraphs[0].font.size = Pt(32)
+    ppt_12.shapes[17].text_frame.paragraphs[2].text = 'In '+ TM_EN + ', active member rate is '+'{:.0%}'.format(1-Customer_Lifecycle_FP_percent.iloc[0][1]-Customer_Lifecycle_FP_percent.iloc[0][2])+'.'
+    ppt_12.shapes[17].text_frame.paragraphs[2].font.size = Pt(32)
+    ppt_12.shapes[18].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    print("---------------ppt12 Customer Lifecycle Movement - Specialty 更新完成--------------------------")
+
+
+    #ppt-13
+    ppt_13 = read_pptx.slides[12]
+    run_ppt_chatdata_add("p13", sql_list("sql_ppt_13_01"),["Inactive", "Lapsed", "At Risk", "Active", "Recent Active", "NewBuyer"], ppt_13.shapes[1],
+                         [list_Rolling(12 - i) for i in range(12)])
+
+    Customer_Lifecycle_Movement_OL = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_13_02"),['NewBuyer', 'Recent Active',
+                                                                                      'Active', 'At Risk', 'Lapsed','Inactive'])
+    Customer_Lifecycle_OL_TM = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_13_03"), ['count'])
+    Customer_Lifecycle_OL_LM = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_13_04"), ['count'])
+
+    Customer_Lifecycle_OL_percent_LM_data = pd.DataFrame(pd.read_excel('ks_data.xls', sheet_name="p13", header=0))
+    Customer_Lifecycle_OL_percent_LM_nrows = Customer_Lifecycle_OL_percent_LM_data.shape[0]
+    Customer_Lifecycle_OL_percent_LM = Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1]
+    Customer_Lifecycle_OL_percent = run_ppt_chartdata_replace.chartdata_replace_get(ppt_8.shapes[14],sql_list("sql_ppt_13_01"),
+                                                                                    ['Inactive', 'Lapsed', 'At Risk','Active', 'Recent Active','NewBuyer'])
+
+    ppt_13.shapes[3].table.cell(0, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_OL_percent.iloc[0][6] -
+                                                                              Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][6]))
+    ppt_13.shapes[3].table.cell(1, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_OL_percent.iloc[0][5] -
+                                                                              Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][5]))
+    ppt_13.shapes[3].table.cell(2, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_OL_percent.iloc[0][4] -
+                                                                              Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][4]))
+    ppt_13.shapes[3].table.cell(3, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_OL_percent.iloc[0][3] -
+                                                                              Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][3]))
+    ppt_13.shapes[3].table.cell(4, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_OL_percent.iloc[0][2] -
+                                                                              Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][2]))
+    ppt_13.shapes[3].table.cell(5, 0).text_frame.paragraphs[0].text = vs_LM_1(Customer_Lifecycle_OL_percent.iloc[0][1] -
+                                                                              Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][1]))
+    for i in range(0, 6):
+        ppt_13.shapes[3].table.cell(i, 0).text_frame.paragraphs[0].font.size = Pt(18)
+        ppt_13.shapes[3].table.cell(i, 0).text_frame.paragraphs[0].font.bold = True
+
+    ppt_13.shapes[3].table.cell(1, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_OL.iloc[1][2],
+                                                                             ",") + ' moved from New buyers'
+    ppt_13.shapes[3].table.cell(1, 1).text_frame.paragraphs[1].text = format(Customer_Lifecycle_Movement_OL.iloc[3][2],
+                                                                             ",") + ' moved from Active'
+    ppt_13.shapes[3].table.cell(1, 1).text_frame.paragraphs[2].text = format(Customer_Lifecycle_Movement_OL.iloc[4][2],
+                                                                             ",") + ' moved from At Risk'
+    ppt_13.shapes[3].table.cell(1, 1).text_frame.paragraphs[3].text = format(Customer_Lifecycle_Movement_OL.iloc[5][2],
+                                                                             ",") + ' moved from Lapsed'
+    # ppt_13.shapes[3].table.cell(1, 1).text_frame.paragraphs[4].text = format(Customer_Lifecycle_Movement_OL.iloc[6][2],
+    #                                                                          ",") + ' moved from Inactive'
+
+    ppt_13.shapes[3].table.cell(2, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_OL.iloc[1][3],
+                                                                             ",") + ' moved from New Buyer'
+    ppt_13.shapes[3].table.cell(2, 1).text_frame.paragraphs[1].text = format(Customer_Lifecycle_Movement_OL.iloc[2][3],
+                                                                             ",") + ' moved from Recent Actives'
+
+    ppt_13.shapes[3].table.cell(3, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_OL.iloc[3][4],
+                                                                             ",") + ' moved from Active'
+    ppt_13.shapes[3].table.cell(4, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_OL.iloc[4][5],
+                                                                             ",") + ' moved from At Risk'
+    ppt_13.shapes[3].table.cell(5, 1).text_frame.paragraphs[0].text = format(Customer_Lifecycle_Movement_OL.iloc[5][6],
+                                                                             ",") + ' moved from At Lapsed'
+
+    for i in range(0, 6):
+        ppt_13.shapes[8].table.cell(2, i + 1).text_frame.paragraphs[0].text = format(
+            Customer_Lifecycle_OL_LM.iloc[i][1], ",")
+        ppt_13.shapes[8].table.cell(3, i + 1).text_frame.paragraphs[0].text = format(
+            Customer_Lifecycle_OL_TM.iloc[i][1], ",")
+        ppt_13.shapes[8].table.cell(2, i + 1).text_frame.paragraphs[0].font.size = Pt(14)
+        ppt_13.shapes[8].table.cell(3, i + 1).text_frame.paragraphs[0].font.size = Pt(14)
+
+    ppt_13.shapes[17].text_frame.paragraphs[0].text = 'The proportion of New Buyer and Recent Active, were ' \
+                                                      + '{:.1%}'.format(
+        Customer_Lifecycle_OL_percent.iloc[0][5] + Customer_Lifecycle_OL_percent.iloc[0][6]) \
+                                                      + ', decreased ' + increase_decrease(
+        Customer_Lifecycle_OL_percent.iloc[0][5] + Customer_Lifecycle_OL_percent.iloc[0][6]
+        - Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][6])
+        - Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][5])) \
+                                                      + ' by last month’s(' + '{:.1%}'.format(
+        Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][6])
+        + Decimal(Customer_Lifecycle_OL_percent_LM_data.iloc[Customer_Lifecycle_OL_percent_LM_nrows - 1][5])) + ').'
+    ppt_13.shapes[17].text_frame.paragraphs[0].font.size = Pt(32)
+    ppt_13.shapes[17].text_frame.paragraphs[2].text = 'In ' + TM_EN + ', active member rate is ' + '{:.0%}'.format(
+        1 - Customer_Lifecycle_OL_percent.iloc[0][1] - Customer_Lifecycle_OL_percent.iloc[0][2]) + '.'
+    ppt_13.shapes[17].text_frame.paragraphs[2].font.size = Pt(32)
+    ppt_13.shapes[18].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    print("---------------ppt13 Customer Lifecycle Movement - Outlet 更新完成--------------------------")
+
+    #ppt-14
+    ppt_14 = read_pptx.slides[13]
+    ppt_14_table = ppt_14.shapes[2]
+    ppt_14_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_14_table, sql_list("sql_ppt_14_01"),
+                                                                          ['Member_n','Member_s','Silver_n','Silver_s','Gold_n','Gold_s','Diamond_n','Diamond_s'
+                                                                           ,'Member_np','Member_sp','Silver_np','Silver_sp','Gold_np','Gold_sp','Diamond_np','Diamond_sp'])
+    for i in (2,4,6):
+        for j in (1,3,5,7):
+            ppt_14_table.table.cell(i,j).text = str(ppt_14_table_data.iloc[int(i/2-1)][j])
+    for i in (2,4,6):
+        for j in (2,4,6,8):
+            ppt_14_table.table.cell(i,j).text = '{:.0f}'.format(ppt_14_table_data.iloc[int(i/2-1)][j]/1000)+'k'
+    for i in (3,5,7):
+        for j in range(1,9):
+            ppt_14_table.table.cell(i, j).text = '{:.0%}'.format(ppt_14_table_data.iloc[int((i-1)/ 2 - 1)][j+8])
+
+    ppt_14.shapes[0].text_frame.paragraphs[0].text = 'YTD customer repurchase rate '+'{:.0%}'.format(1 - (Repurchase_rate_FP.iloc[0][1] + Repurchase_rate_FP.iloc[0][3] + Repurchase_rate_FP.iloc[0][5] +
+                         Repurchase_rate_FP.iloc[0][7]) /
+                    (Repurchase_rate_FP['Member_n'].sum() + Repurchase_rate_FP['Silver_n'].sum() + Repurchase_rate_FP['Gold_n'].sum() + Repurchase_rate_FP['Gold_n'].sum()))\
+                                                     +', Diamond: '+'{:.0%}'.format(1-ppt_14_table_data.iloc[0][15])\
+                                                     +', Gold:'+'{:.0%}'.format(1-ppt_14_table_data.iloc[0][13])\
+                                                     +',Silver:'+'{:.0%}'.format(1-ppt_14_table_data.iloc[0][11])\
+                                                     +',Member: '+'{:.0%}'.format(1-ppt_14_table_data.iloc[0][9])+'.'
+    ppt_14.shapes[0].text_frame.paragraphs[0].font.size = Pt(28)
+    ppt_14.shapes[0].text_frame.paragraphs[1].text = 'In FY 20, '+'{:.0%}'.format(ppt_14_table_data.iloc[2][15])+'  Diamond  purchase more than 2 times in all purchased Diamond. '
+    ppt_14.shapes[0].text_frame.paragraphs[1].font.size = Pt(28)
+    ppt_14.shapes[4].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    for i in range(0,8):
+        for j in range(0,9):
+            ppt_14_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+    print("---------------ppt14 Purchase Frequency-Specialty 更新完成--------------------------")
+
+    #ppt-15
+    ppt_15 = read_pptx.slides[14]
+    ppt_15_table = ppt_15.shapes[2]
+    ppt_15_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_15_table, sql_list("sql_ppt_15_01"),
+                                                                        ['Member_n', 'Member_s', 'Silver_n', 'Silver_s','Gold_n', 'Gold_s', 'Diamond_n', 'Diamond_s'
+                                                                         , 'Member_np', 'Member_sp', 'Silver_np','Silver_sp', 'Gold_np', 'Gold_sp','Diamond_np', 'Diamond_sp'])
+    for i in (2, 4, 6):
+        for j in (1, 3, 5, 7):
+            ppt_15_table.table.cell(i, j).text = str(ppt_15_table_data.iloc[int(i / 2 - 1)][j])
+    for i in (2, 4, 6):
+        for j in (2, 4, 6, 8):
+            ppt_15_table.table.cell(i, j).text = '{:.0f}'.format(ppt_15_table_data.iloc[int(i / 2 - 1)][j] / 1000) + 'k'
+    for i in (3, 5, 7):
+        for j in range(1, 9):
+            ppt_15_table.table.cell(i, j).text = '{:.0%}'.format(ppt_15_table_data.iloc[int((i - 1) / 2 - 1)][j + 8])
+
+    ppt_15.shapes[0].text_frame.paragraphs[0].text = 'YTD customer repurchase rate ' + '{:.0%}'.format(
+        1 - (Repurchase_rate_OL.iloc[0][1] + Repurchase_rate_FP.iloc[0][3] + Repurchase_rate_OL.iloc[0][5] +
+             Repurchase_rate_OL.iloc[0][7]) /
+        (Repurchase_rate_OL['Member_n'].sum() + Repurchase_rate_OL['Silver_n'].sum() + Repurchase_rate_OL[
+            'Gold_n'].sum() + Repurchase_rate_OL['Gold_n'].sum())) \
+                                                     + ', Diamond: ' + '{:.0%}'.format(
+        1 - ppt_15_table_data.iloc[0][15]) \
+                                                     + ', Gold:' + '{:.0%}'.format(1 - ppt_15_table_data.iloc[0][13]) \
+                                                     + ',Silver:' + '{:.0%}'.format(1 - ppt_15_table_data.iloc[0][11]) \
+                                                     + ',Member: ' + '{:.0%}'.format(
+        1 - ppt_15_table_data.iloc[0][9]) + '.'
+    ppt_15.shapes[0].text_frame.paragraphs[0].font.size = Pt(28)
+    ppt_15.shapes[0].text_frame.paragraphs[1].text = 'In FY 20, ' + '{:.0%}'.format(
+        ppt_15_table_data.iloc[2][15]) + '  Diamond  purchase more than 2 times in all purchased Diamond. '
+    ppt_15.shapes[0].text_frame.paragraphs[1].font.size = Pt(28)
+    ppt_15.shapes[4].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    for i in range(0,8):
+        for j in range(0,9):
+            ppt_15_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+    print("---------------ppt15 Purchase Frequency-Outlet 更新完成--------------------------")
+
+    #ppt-16
+    ppt_16 = read_pptx.slides[15]
+    ppt_16_table = ppt_16.shapes[4]
+    ppt_16_table_data_01 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_16_table, sql_list("sql_ppt_16_01"),
+                                                                        ['num', 'sales', 'num_p', 'sales_p'])
+    ppt_16_table_data_02 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_16_table, sql_list("sql_ppt_16_02"),
+                                                                           ['num', 'sales', 'num_p', 'sales_p'])
+    ppt_16_table_data_03 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_16_table, sql_list("sql_ppt_16_03"),
+                                                                           ['num', 'sales', 'num_p', 'sales_p'])
+    ppt_16_table_data_04 = run_ppt_chartdata_replace.chartdata_replace_get(ppt_16_table, sql_list("sql_ppt_16_04"),
+                                                                           ['num', 'sales', 'num_p', 'sales_p'])
+    ppt_16_table.table.cell(3,1).text = str(ppt_16_table_data_01.iloc[0][1])
+    ppt_16_table.table.cell(3,2).text = '{:.0f}'.format(ppt_16_table_data_01.iloc[0][2]/1000)+'k'
+    ppt_16_table.table.cell(5, 1).text = str(ppt_16_table_data_01.iloc[1][1])
+    ppt_16_table.table.cell(5, 2).text = '{:.0f}'.format(ppt_16_table_data_01.iloc[1][2] / 1000) + 'k'
+    ppt_16_table.table.cell(3, 3).text = str(ppt_16_table_data_02.iloc[0][1])
+    ppt_16_table.table.cell(3, 4).text = '{:.0f}'.format(ppt_16_table_data_02.iloc[0][2] / 1000) + 'k'
+    ppt_16_table.table.cell(5, 3).text = str(ppt_16_table_data_02.iloc[1][1])
+    ppt_16_table.table.cell(5, 4).text = '{:.0f}'.format(ppt_16_table_data_02.iloc[1][2] / 1000) + 'k'
+    ppt_16_table.table.cell(3, 5).text = str(ppt_16_table_data_03.iloc[0][1])
+    ppt_16_table.table.cell(3, 6).text = '{:.0f}'.format(ppt_16_table_data_03.iloc[0][2] / 1000) + 'k'
+    ppt_16_table.table.cell(5, 5).text = str(ppt_16_table_data_03.iloc[1][1])
+    ppt_16_table.table.cell(5, 6).text = '{:.0f}'.format(ppt_16_table_data_03.iloc[1][2] / 1000) + 'k'
+    ppt_16_table.table.cell(3, 7).text = str(ppt_16_table_data_04.iloc[0][1])
+    ppt_16_table.table.cell(3, 8).text = '{:.0f}'.format(ppt_16_table_data_04.iloc[0][2] / 1000) + 'k'
+    ppt_16_table.table.cell(5, 7).text = str(ppt_16_table_data_04.iloc[1][1])
+    ppt_16_table.table.cell(5, 8).text = '{:.0f}'.format(ppt_16_table_data_04.iloc[1][2] / 1000) + 'k'
+    for i in (4,6):
+        ppt_16_table.table.cell(i,1).text = '{:.0%}'.format(ppt_16_table_data_01.iloc[int(i/2-2)][3]) # todo ?????? 
+        ppt_16_table.table.cell(i, 2).text = '{:.0%}'.format(ppt_16_table_data_01.iloc[int(i / 2 - 2)][4])
+        ppt_16_table.table.cell(i, 3).text = '{:.0%}'.format(ppt_16_table_data_02.iloc[int(i / 2 - 2)][3])
+        ppt_16_table.table.cell(i, 4).text = '{:.0%}'.format(ppt_16_table_data_02.iloc[int(i / 2 - 2)][4])
+        ppt_16_table.table.cell(i, 5).text = '{:.0%}'.format(ppt_16_table_data_03.iloc[int(i / 2 - 2)][3])
+        ppt_16_table.table.cell(i, 6).text = '{:.0%}'.format(ppt_16_table_data_03.iloc[int(i / 2 - 2)][4])
+        ppt_16_table.table.cell(i, 7).text = '{:.0%}'.format(ppt_16_table_data_04.iloc[int(i / 2 - 2)][3])
+        ppt_16_table.table.cell(i, 8).text = '{:.0%}'.format(ppt_16_table_data_04.iloc[int(i / 2 - 2)][4])
+
+    for i in range(0,7):
+        for j in range(0,9):ppt_16_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+
+    run_ppt_chatdata_add("p16", sql_list("sql_ppt_16_05"),
+                         ['RTW','HB','SLG','Others','Chance-maker'], ppt_16.shapes[6],
+                         [list_Rolling(12 - i) for i in range(12)])
+
+    Category_by_Channel = run_ppt_chartdata_replace.chartdata_replace_get(ppt_16_table, sql_list("sql_ppt_16_05"),
+                                                                        ['RTW','HB','SLG','Others','Chance-maker'])
+
+    ppt_16.shapes[2].text_frame.paragraphs[0].text = 'In FY20, '+'{:.0%}'.format(ppt_16_table_data_01.iloc[int(1)][3])\
+                                                     +' customer of specialty stores purchased more than 1 category and contributed '+'{:.0%}'.format(ppt_16_table_data_01.iloc[1][4])
+    ppt_16.shapes[2].text_frame.paragraphs[0].font.size = Pt(32)
+    ppt_16.shapes[2].text_frame.paragraphs[1].text = 'In FY20, '+ '{:.0%}'.format(ppt_16_table_data_02.iloc[1][3])\
+                                                     +' customer of outlet stores purchased more than 1 category and contributed '+'{:.0%}'.format(ppt_16_table_data_02.iloc[1][4])
+    ppt_16.shapes[2].text_frame.paragraphs[1].font.size = Pt(32)
+    ppt_16.shapes[2].text_frame.paragraphs[2].text = 'In rolling 12 month, '+'{:.0%}'.format(Category_by_Channel.iloc[0][2]/(Category_by_Channel.iloc[0][1]+Category_by_Channel.iloc[0][2]+Category_by_Channel.iloc[0][3]+Category_by_Channel.iloc[0][4]+Category_by_Channel.iloc[0][5]))+' customer is tagged as HB Seeker.'
+    ppt_16.shapes[2].text_frame.paragraphs[2].font.size = Pt(32)
+    ppt_16.shapes[7].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    print("---------------ppt16 Category by Channel 更新完成--------------------------")
+
+    #ppt-17
+    ppt_17 = read_pptx.slides[16]
+    ppt_17_table = ppt_17.shapes[2]
+    ppt_17_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_17_table, sql_list("sql_ppt_17_01"),
+                                                                           ['cu20','cu19','cup','cupr20','cupr19','cuprp','sa20','sa19','sap',
+                                                                            'sapr20','sapr19','saprp','at20','at19','atp','spc20','spc19','spcp'])
+    for i in range(2,15):
+        for j in (3,4,5,6,9,10,11,12,15,18):
+            ppt_17_table.table.cell(i,j).text = '{:.0%}'.format(ppt_17_table_data.iloc[i - 2][j])
+        for k in (1,2,13,14,16,17):
+            ppt_17_table.table.cell(i, k).text = format(int(ppt_17_table_data.iloc[i - 2][k]),",")
+        for m in (7,8):
+            ppt_17_table.table.cell(i, m).text = str(int(ppt_17_table_data.iloc[i - 2][m]/1000))+'k'
+
+    for i in range(0,15):
+        for j in range(0,19):
+            ppt_17_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+    ppt_17.shapes[1].text_frame.paragraphs[0].text = 'The customer of buying HB '+ increase_decrease(ppt_17_table_data.iloc[0][3])\
+                                                     +' vs LY, while sales  '+increase_decrease(ppt_17_table_data.iloc[0][9])+'.'
+    ppt_17.shapes[1].text_frame.paragraphs[0].font.size = Pt(32)
+    ppt_17.shapes[3].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+
+    print("---------------ppt17 Change Cluster Movement Analysis - Specialty 更新完成--------------------------")
+
+    #ppt-18
+    ppt_18 = read_pptx.slides[17]
+    ppt_18_table = ppt_18.shapes[1]
+    ppt_18_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_18_table, sql_list("sql_ppt_18_01"),
+                                                                        ['R12Cust', 'R12Proportion', 'R12sales', 'R12SalesProportion', 'R12AT','R12PerCustomer'])
+    for i in range(1,14):
+        for j in (1,5,6):
+            ppt_18_table.table.cell(i,j).text = format(int(ppt_18_table_data.iloc[i-1][j]),',')
+        for k in (2,4):
+            ppt_18_table.table.cell(i, k).text = '{:.0%}'.format(ppt_18_table_data.iloc[i - 1][k])
+        for m in (3,):
+            ppt_18_table.table.cell(i, m).text = format(int(ppt_18_table_data.iloc[i - 1][m]/1000),",")+'k'
+
+    for i in range(0,14):
+        for j in range(0,7):
+            ppt_18_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+
+
+    for i in range(0, 100):
+        try:
+            comments_shape = ppt_18.shapes[i]
+            print(i)
+            print(type(comments_shape))
+        except:
+            pass
+            continue
+
+    ppt_18.shapes[3].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    print("---------------ppt18 Change Cluster Movement Analysis - Specialty 更新完成--------------------------")
+
+    #ppt-19
+    ppt_19 = read_pptx.slides[18]
+    ppt_19_table = ppt_19.shapes[4]
+    ppt_19_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_19_table, sql_list("sql_ppt_19_01"),
+                                                                        ['cu20', 'cu19', 'cup', 'cupr20', 'cupr19',
+                                                                         'cuprp', 'sa20', 'sa19', 'sap',
+                                                                         'sapr20', 'sapr19', 'saprp', 'at20', 'at19',
+                                                                         'atp', 'spc20', 'spc19', 'spcp'])
+    for i in range(2, 15):
+        for j in (3, 4, 5, 6, 9, 10, 11, 12, 15, 18):
+            ppt_19_table.table.cell(i, j).text = '{:.0%}'.format(ppt_19_table_data.iloc[i - 2][j])
+        for k in (1, 2, 13, 14, 16, 17):
+            ppt_19_table.table.cell(i, k).text = format(int(ppt_19_table_data.iloc[i - 2][k]), ",")
+        for m in (7, 8):
+            ppt_19_table.table.cell(i, m).text = str(int(ppt_19_table_data.iloc[i - 2][m] / 1000)) + 'k'
+
+    for i in range(0,15):
+        for j in range(0,19):
+            ppt_19_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+    ppt_19.shapes[3].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    print("---------------ppt19 Cluster Movement Analysis - Outlet 更新完成--------------------------")
+
+    #ppt-20
+    ppt_20 = read_pptx.slides[19]
+    ppt_20_table = ppt_20.shapes[2]
+    ppt_20_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_20_table, sql_list("sql_ppt_20_01"),
+                                                                        ['R12Cust', 'R12Proportion', 'R12sales',
+                                                                         'R12SalesProportion', 'R12AT',
+                                                                         'R12PerCustomer'])
+    for i in range(1, 14):
+        for j in (1, 5, 6):
+            ppt_20_table.table.cell(i, j).text = format(int(ppt_18_table_data.iloc[i - 1][j]), ',')
+        for k in (2, 4):
+            ppt_20_table.table.cell(i, k).text = '{:.0%}'.format(ppt_18_table_data.iloc[i - 1][k])
+        for m in (3,):
+            ppt_20_table.table.cell(i, m).text = format(int(ppt_18_table_data.iloc[i - 1][m] / 1000), ",") + 'k'
+
+    for i in range(0,14):
+        for j in range(0,7):
+            ppt_20_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+    ppt_20.shapes[1].text_frame.paragraphs[0].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    print("---------------ppt20 Cluster Movement Analysis - Outlet 更新完成--------------------------")
+
+
+    #ppt-21
+    ppt_21 = read_pptx.slides[20]
+    ppt_21_table = ppt_21.shapes[2]
+    ppt_21_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_21_table, sql_list("sql_ppt_21_01"),
+                                                                        ['门店类型','礼券类型','绑定','礼券领取','领取率','CS2000核销','CS2000核销率','订单量占比',
+                                                                         'sales','AT','UPT','new绑定','new礼券领取','new领取率','newCS2000核销','newCS2000核销率',
+                                                                         'new订单量占比','newsales','newAT','newUPT','old绑定','old礼券领取','old领取率','oldCS2000核销',
+                                                                         'oldCS2000核销率','old订单量占比','oldsales','oldAT','oldUPT'])
+    for i in (2,3):
+        for j in (2,3,5,8,9):
+            ppt_21_table.table.cell(i, j).text = format(int(ppt_21_table_data.iloc[i-2][j+1]), ',')
+            ppt_21_table.table.cell(4, j).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][j+1]-ppt_21_table_data.iloc[1][j+1])/ppt_21_table_data.iloc[1][j+1])
+            ppt_21_table.table.cell(i+3, j).text = format(int(ppt_21_table_data.iloc[i - 2][j + 10]), ',')
+            ppt_21_table.table.cell(7, j).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][j + 10] - ppt_21_table_data.iloc[1][j + 10]) / ppt_21_table_data.iloc[1][j + 10])
+            ppt_21_table.table.cell(i + 6, j).text = format(int(ppt_21_table_data.iloc[i - 2][j + 19]), ',')
+            ppt_21_table.table.cell(10, j).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][j + 19] - ppt_21_table_data.iloc[1][j + 19]) / ppt_21_table_data.iloc[1][j + 19])
+        for k in (4,6,7):
+            ppt_21_table.table.cell(i, k).text ='{:.0%}'. format(ppt_21_table_data.iloc[i - 2][k + 1])
+            ppt_21_table.table.cell(4, k).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][k + 1] - ppt_21_table_data.iloc[1][k + 1]) / ppt_21_table_data.iloc[1][k + 1])
+            ppt_21_table.table.cell(i + 3, k).text = '{:.0%}'.format(ppt_21_table_data.iloc[i - 2][k + 10])
+            ppt_21_table.table.cell(7, k).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][k + 10] - ppt_21_table_data.iloc[1][k + 10]) / ppt_21_table_data.iloc[1][k + 10])
+            ppt_21_table.table.cell(i + 6, k).text = '{:.0%}'.format(ppt_21_table_data.iloc[i - 2][k + 19])
+            ppt_21_table.table.cell(10, k).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][k + 19] - ppt_21_table_data.iloc[1][k + 19]) / ppt_21_table_data.iloc[1][k + 19])
+        for m in (10,):
+            ppt_21_table.table.cell(i, m).text = '{:.1f}'.format(ppt_21_table_data.iloc[i - 2][m + 1])
+            ppt_21_table.table.cell(4, m).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][m + 1] - ppt_21_table_data.iloc[1][m + 1]) / ppt_21_table_data.iloc[1][m + 1])
+            ppt_21_table.table.cell(i + 3, m).text = '{:.1f}'.format(ppt_21_table_data.iloc[i - 2][m + 10])
+            ppt_21_table.table.cell(7, m).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][m + 10] - ppt_21_table_data.iloc[1][m + 10]) / ppt_21_table_data.iloc[1][m + 10])
+            ppt_21_table.table.cell(i + 6, m).text = '{:.1f}'.format(ppt_21_table_data.iloc[i - 2][m + 19])
+            ppt_21_table.table.cell(10, m).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][m + 19] - ppt_21_table_data.iloc[1][m + 19]) / ppt_21_table_data.iloc[1][m + 19])
+    ppt_21_table.table.cell(11, 2).text = format(int(ppt_21_table_data.iloc[0][3]-ppt_21_table_data.iloc[0][12]-ppt_21_table_data.iloc[0][21]), ',')
+    ppt_21_table.table.cell(11, 3).text = format(int(ppt_21_table_data.iloc[0][4] - ppt_21_table_data.iloc[0][13] - ppt_21_table_data.iloc[0][22]), ',')
+    ppt_21_table.table.cell(11, 4).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][4] - ppt_21_table_data.iloc[0][13] - ppt_21_table_data.iloc[0][22])/
+                                                          (ppt_21_table_data.iloc[0][3]-ppt_21_table_data.iloc[0][12]-ppt_21_table_data.iloc[0][21]))
+    ppt_21_table.table.cell(12, 2).text = format(
+        int(ppt_21_table_data.iloc[1][3] - ppt_21_table_data.iloc[1][12] - ppt_21_table_data.iloc[1][21]), ',')
+    ppt_21_table.table.cell(12, 3).text = format(
+        int(ppt_21_table_data.iloc[1][4] - ppt_21_table_data.iloc[1][13] - ppt_21_table_data.iloc[1][22]), ',')
+    ppt_21_table.table.cell(12, 4).text = '{:.0%}'.format((ppt_21_table_data.iloc[1][4] - ppt_21_table_data.iloc[1][13] - ppt_21_table_data.iloc[1][22])/
+                                                          (ppt_21_table_data.iloc[1][3] - ppt_21_table_data.iloc[1][12] - ppt_21_table_data.iloc[1][21]))
+    ppt_21_table.table.cell(13, 2).text = '{:.0%}'.format((ppt_21_table_data.iloc[0][3]-ppt_21_table_data.iloc[0][12]-ppt_21_table_data.iloc[0][21]-
+                                                          (ppt_21_table_data.iloc[1][3] - ppt_21_table_data.iloc[1][12] - ppt_21_table_data.iloc[1][21]))/
+                                                          (ppt_21_table_data.iloc[1][3] - ppt_21_table_data.iloc[1][12] - ppt_21_table_data.iloc[1][21]))
+    ppt_21_table.table.cell(13, 3).text = '{:.0%}'.format(
+        (ppt_21_table_data.iloc[0][4] - ppt_21_table_data.iloc[0][13] - ppt_21_table_data.iloc[0][22] -
+         (ppt_21_table_data.iloc[1][4] - ppt_21_table_data.iloc[1][13] - ppt_21_table_data.iloc[1][22])) /
+        (ppt_21_table_data.iloc[1][4] - ppt_21_table_data.iloc[1][13] - ppt_21_table_data.iloc[1][22]))
+    ppt_21_table.table.cell(13, 4).text = '{:.0%}'.format(
+        (
+            ((ppt_21_table_data.iloc[0][4] - ppt_21_table_data.iloc[0][13] - ppt_21_table_data.iloc[0][22]) /
+                (ppt_21_table_data.iloc[0][3] - ppt_21_table_data.iloc[0][12] - ppt_21_table_data.iloc[0][21]))-
+            ((ppt_21_table_data.iloc[1][4] - ppt_21_table_data.iloc[1][13] - ppt_21_table_data.iloc[1][22])/
+                                                          (ppt_21_table_data.iloc[1][3] - ppt_21_table_data.iloc[1][12] - ppt_21_table_data.iloc[1][21]))
+        )/((ppt_21_table_data.iloc[1][4] - ppt_21_table_data.iloc[1][13] - ppt_21_table_data.iloc[1][22])/
+                                                          (ppt_21_table_data.iloc[1][3] - ppt_21_table_data.iloc[1][12] - ppt_21_table_data.iloc[1][21]))
+    )
+
+    for i in range(0,14):
+        for j in range(0,11):
+            ppt_21_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+    ppt_21.shapes[1].text_frame.paragraphs[1].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    print("---------------ppt21 Welcome Coupon Overview 更新完成--------------------------")
+
+
+    #ppt-22
+    ppt_22 = read_pptx.slides[21]
+    ppt_22_table = ppt_22.shapes[1]
+    ppt_22_table_data = run_ppt_chartdata_replace.chartdata_replace_get(ppt_22_table, sql_list("sql_ppt_22_01"),
+                                                                        ['门店类型', '礼券类型', '绑定', '礼券领取', '领取率',
+                                                                         'CS2000核销', 'CS2000核销率', '订单量占比',
+                                                                         'sales', 'AT', 'UPT', 'new绑定', 'new礼券领取',
+                                                                         'new领取率', 'newCS2000核销', 'newCS2000核销率',
+                                                                         'new订单量占比', 'newsales', 'newAT', 'newUPT',
+                                                                         'old绑定', 'old礼券领取', 'old领取率', 'oldCS2000核销',
+                                                                         'oldCS2000核销率', 'old订单量占比', 'oldsales',
+                                                                         'oldAT', 'oldUPT'])
+    for i in (2, 3):
+        for j in (2, 3, 5, 8, 9):
+            ppt_22_table.table.cell(i, j).text = format(int(ppt_22_table_data.iloc[i - 2][j + 1]), ',')
+            ppt_22_table.table.cell(4, j).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][j + 1] - ppt_22_table_data.iloc[1][j + 1]) / ppt_22_table_data.iloc[1][
+                    j + 1])
+            ppt_22_table.table.cell(i + 3, j).text = format(int(ppt_22_table_data.iloc[i - 2][j + 10]), ',')
+            ppt_22_table.table.cell(7, j).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][j + 10] - ppt_22_table_data.iloc[1][j + 10]) / ppt_22_table_data.iloc[1][
+                    j + 10])
+            ppt_22_table.table.cell(i + 6, j).text = format(int(ppt_22_table_data.iloc[i - 2][j + 19]), ',')
+            ppt_22_table.table.cell(10, j).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][j + 19] - ppt_22_table_data.iloc[1][j + 19]) / ppt_22_table_data.iloc[1][
+                    j + 19])
+        for k in (4, 6, 7):
+            ppt_22_table.table.cell(i, k).text = '{:.0%}'.format(ppt_22_table_data.iloc[i - 2][k + 1])
+            ppt_22_table.table.cell(4, k).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][k + 1] - ppt_22_table_data.iloc[1][k + 1]) / ppt_22_table_data.iloc[1][
+                    k + 1])
+            ppt_22_table.table.cell(i + 3, k).text = '{:.0%}'.format(ppt_22_table_data.iloc[i - 2][k + 10])
+            ppt_22_table.table.cell(7, k).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][k + 10] - ppt_22_table_data.iloc[1][k + 10]) / ppt_22_table_data.iloc[1][
+                    k + 10])
+            ppt_22_table.table.cell(i + 6, k).text = '{:.0%}'.format(ppt_22_table_data.iloc[i - 2][k + 19])
+            ppt_22_table.table.cell(10, k).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][k + 19] - ppt_22_table_data.iloc[1][k + 19]) / ppt_22_table_data.iloc[1][
+                    k + 19])
+        for m in (10,):
+            ppt_22_table.table.cell(i, m).text = '{:.1f}'.format(ppt_22_table_data.iloc[i - 2][m + 1])
+            ppt_22_table.table.cell(4, m).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][m + 1] - ppt_22_table_data.iloc[1][m + 1]) / ppt_22_table_data.iloc[1][
+                    m + 1])
+            ppt_22_table.table.cell(i + 3, m).text = '{:.1f}'.format(ppt_22_table_data.iloc[i - 2][m + 10])
+            ppt_22_table.table.cell(7, m).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][m + 10] - ppt_22_table_data.iloc[1][m + 10]) / ppt_22_table_data.iloc[1][
+                    m + 10])
+            ppt_22_table.table.cell(i + 6, m).text = '{:.1f}'.format(ppt_22_table_data.iloc[i - 2][m + 19])
+            ppt_22_table.table.cell(10, m).text = '{:.0%}'.format(
+                (ppt_22_table_data.iloc[0][m + 19] - ppt_22_table_data.iloc[1][m + 19]) / ppt_22_table_data.iloc[1][
+                    m + 19])
+    ppt_22_table.table.cell(11, 2).text = format(
+        int(ppt_22_table_data.iloc[0][3] - ppt_22_table_data.iloc[0][12] - ppt_22_table_data.iloc[0][21]), ',')
+    ppt_22_table.table.cell(11, 3).text = format(
+        int(ppt_22_table_data.iloc[0][4] - ppt_22_table_data.iloc[0][13] - ppt_22_table_data.iloc[0][22]), ',')
+    ppt_22_table.table.cell(11, 4).text = '{:.0%}'.format(
+        (ppt_22_table_data.iloc[0][4] - ppt_22_table_data.iloc[0][13] - ppt_22_table_data.iloc[0][22]) /
+        (ppt_22_table_data.iloc[0][3] - ppt_22_table_data.iloc[0][12] - ppt_22_table_data.iloc[0][21]))
+    ppt_22_table.table.cell(12, 2).text = format(
+        int(ppt_22_table_data.iloc[1][3] - ppt_22_table_data.iloc[1][12] - ppt_22_table_data.iloc[1][21]), ',')
+    ppt_22_table.table.cell(12, 3).text = format(
+        int(ppt_22_table_data.iloc[1][4] - ppt_22_table_data.iloc[1][13] - ppt_22_table_data.iloc[1][22]), ',')
+    ppt_22_table.table.cell(12, 4).text = '{:.0%}'.format(
+        (ppt_22_table_data.iloc[1][4] - ppt_22_table_data.iloc[1][13] - ppt_22_table_data.iloc[1][22]) /
+        (ppt_22_table_data.iloc[1][3] - ppt_22_table_data.iloc[1][12] - ppt_22_table_data.iloc[1][21]))
+    ppt_22_table.table.cell(13, 2).text = '{:.0%}'.format(
+        (ppt_22_table_data.iloc[0][3] - ppt_22_table_data.iloc[0][12] - ppt_22_table_data.iloc[0][21] -
+         (ppt_22_table_data.iloc[1][3] - ppt_22_table_data.iloc[1][12] - ppt_22_table_data.iloc[1][21])) /
+        (ppt_22_table_data.iloc[1][3] - ppt_22_table_data.iloc[1][12] - ppt_22_table_data.iloc[1][21]))
+    ppt_22_table.table.cell(13, 3).text = '{:.0%}'.format(
+        (ppt_22_table_data.iloc[0][4] - ppt_22_table_data.iloc[0][13] - ppt_22_table_data.iloc[0][22] -
+         (ppt_22_table_data.iloc[1][4] - ppt_22_table_data.iloc[1][13] - ppt_22_table_data.iloc[1][22])) /
+        (ppt_22_table_data.iloc[1][4] - ppt_22_table_data.iloc[1][13] - ppt_22_table_data.iloc[1][22]))
+    ppt_22_table.table.cell(13, 4).text = '{:.0%}'.format(
+        (
+                ((ppt_22_table_data.iloc[0][4] - ppt_22_table_data.iloc[0][13] - ppt_22_table_data.iloc[0][22]) /
+                 (ppt_22_table_data.iloc[0][3] - ppt_22_table_data.iloc[0][12] - ppt_22_table_data.iloc[0][21])) -
+                ((ppt_22_table_data.iloc[1][4] - ppt_22_table_data.iloc[1][13] - ppt_22_table_data.iloc[1][22]) /
+                 (ppt_22_table_data.iloc[1][3] - ppt_22_table_data.iloc[1][12] - ppt_22_table_data.iloc[1][21]))
+        ) / ((ppt_22_table_data.iloc[1][4] - ppt_22_table_data.iloc[1][13] - ppt_22_table_data.iloc[1][22]) /
+             (ppt_22_table_data.iloc[1][3] - ppt_22_table_data.iloc[1][12] - ppt_22_table_data.iloc[1][21]))
+    )
+
+    for i in range(0,14):
+        for j in range(0,11):
+            ppt_22_table.table.cell(i,j).text_frame.paragraphs[0].font.size = Pt(22)
+
+    ppt_22.shapes[2].text_frame.paragraphs[1].text = '*Data cut of data: ' + TM_EN + '. , ' + YEAR_EN
+
+    print("---------------ppt22 Welcome Coupon Overview 更新完成--------------------------")
+
+
+    read_pptx.save('python-pptx.pptx')
