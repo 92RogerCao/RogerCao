@@ -814,17 +814,48 @@ class ks_monthlyreport(object):
             text_token.text_frame.paragraphs[0].alignment = PP_ALIGN.LEFT
 
 
+if __name__ == '__main__':
+
+    p2_sql = {
+            'p2_disby_purchase_status':  '''sql''', 
+            'p2_disby_purchase_status_LY':'''sql''',
+            'p2_disby_type':  '''sql''' ,
+            'p2_Compstore_Newcustomer':  '''sql''',
+            'p2_Compstore_Existcustomer':  '''sql'''}
+
+    p3_sql = {'p3_subscribe_num': '''sql''',
+              'p3_bind_level_proportion': '''sql''',
+              'p3_binding_status_type': '''sql''',
+              'p3_binding_status_type_ytd':'''sql'''}
+
+    p4_sql = { 'p4_Status_Membership':'''sql'''}
+
+    p5_sql = {'p5_speciality': '''sql''' , 
+              'p5_outlet': '''sql'''}
 
 
+ppt_path = ''
 
+history_data = ''
 
+PPT_Report = ks_monthlyreport(ppt_path, p2_sql , p3_sql , p4_sql,p5_sql)
 
+PPT_Report.ppt_gen
 
+PPT_Report.run_sql() 
 
+PPT_Report.p5_speciality_data_ChartData_use
 
+PPT_Report.ppt2_db_overview_one()
 
+PPT_Report.ppt3_db_overview_two()
 
+PPT_Report.ppt4_status_membership_grade(history_data)
 
+PPT_Report.ppt5_DataCap_bymonth(history_data)
 
+PPT_Report.ppt_gen.save(r'Monthly DataBase Overview.pptx')
+PPT_Report.store_history_data(history_data)
 
+print('----自动化报告完成-----')
 
