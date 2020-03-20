@@ -1,0 +1,830 @@
+from pptx import Presentation 
+from pptx.util import Cm, Pt
+import datetime
+import pyodbc
+import pandas as pd
+import datetime as dt
+import calendar
+import datetime as dt
+import copy
+from numpy import zeros
+import re
+            
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN
+from pptx.enum.text import MSO_ANCHOR
+from pptx.enum.chart import XL_CHART_TYPE
+from pptx.chart.data import ChartData
+
+class ks_monthlyreport(object):
+    '''以后的改进方案，
+    1. 作图相关的代码按照是否需要存储数据分为两个函数；文本框修饰类代码应该处理成函数。
+    
+    2. 可以在 __init__函数中使用sql将数据获取，相关对象不需要转换成 对象。
+    '''
+    def __init__(self , ppt_file_path , p2_sql ,p3_sql ,p4_sql , p5_sql):  
+        
+        self.ppt_gen = Presentation(ppt_file_path) # 参数传递PPT对象
+        
+        self.p2_disby_purchase_status_sql = p2_sql['p2_disby_purchase_status']
+        self.p2_disby_purchase_status_LY_sql = p2_sql['p2_disby_purchase_status_LY']
+        self.p2_disby_type_sql = p2_sql['p2_disby_type']
+        self.p2_Compstore_Newcustomer_sql = p2_sql['p2_Compstore_Newcustomer']
+        self.p2_Compstore_Existcustomer_sql = p2_sql['p2_Compstore_Existcustomer']
+        self.p3_subscribe_num_sql = p3_sql['p3_subscribe_num']
+        self.p3_bind_level_proportion_sql = p3_sql['p3_bind_level_proportion']
+        self.p3_binding_status_type_sql = p3_sql['p3_binding_status_type']
+        self.p3_binding_status_type_ytd_sql = p3_sql['p3_binding_status_type_ytd']
+        self.p4_Status_Membership_sql = p4_sql['p4_Status_Membership']
+        
+        self.p5_speciality_sql = p5_sql['p5_speciality']
+        self.p5_outlet_sql = p5_sql['p5_outlet']
+        
+        
+        self.sql_col = {'p2_disby_purchase_status':['是否active','nums'],
+                        'p2_disby_purchase_status_LY':['status' , 'LY数据'],
+                           'p2_disby_type':['level' , 'quantity' , 'active'],
+                           'p2_Compstore_Newcustomer':['datatpye' , 'ytd' , 'ly'],
+                           'p2_Compstore_Existcustomer':['datatpye' , 'ty' , 'ly'],
+                           'p3_subscribe_num':['sub_num'],
+                           'p3_bind_level_proportion':['level' , 'binding'],
+                           'p3_binding_status_type':['level' , 'quantity','binding'],
+                           'p3_binding_status_type_ytd':['level','quantity','binding'],
+                           'p4_Status_Membership':['levle_lm','prospects','Member','Silver','Gold','Diamond'],
+                           'p5_speciality':['total','FY19留资率','FY20留资率','FY19上月留资率','FY20上月留资率'],
+                           'p5_outlet':['total','FY19留资率','FY20留资率','FY19上月留资率','FY20上月留资率']} 
+        
+
+    def run_sql(self):
+        
+        def _sql_get_from_db(sql , cursor , colname_list):
+            
+            cursor.execute(sql)
+            
+            raw_data = [list(i) for i in cursor.fetchall()]
+            df = pd.DataFrame(list(raw_data) , columns = colname_list)
+            
+            return df
+        
+        driver = 'SQL Server Native Client 11.0'
+        server = ''
+        user = ''
+        password = ''
+        database_test = ''
+        
+        conn = pyodbc.connect(driver=driver, server=server, user=user, password=password, database=database_test)
+        cursor_use = conn.cursor()
+        
+        self.p2_disby_purchase_status = _sql_get_from_db(self.p2_disby_purchase_status_sql ,cursor_use ,self.sql_col['p2_disby_purchase_status'])
+        self.p2_disby_type = _sql_get_from_db(self.p2_disby_type_sql ,cursor_use ,self.sql_col['p2_disby_type'])
+        self.p2_disby_purchase_status_LY = _sql_get_from_db(self.p2_disby_purchase_status_LY_sql ,cursor_use ,self.sql_col['p2_disby_purchase_status_LY'])
+        
+        self.p2_Compstore_Newcustomer = _sql_get_from_db(self.p2_Compstore_Newcustomer_sql , cursor_use , self.sql_col['p2_Compstore_Newcustomer'])
+        self.p2_Compstore_Existcustomer = _sql_get_from_db(self.p2_Compstore_Existcustomer_sql , cursor_use , self.sql_col['p2_Compstore_Existcustomer'])
+        
+        self.p3_subscribe_num = _sql_get_from_db(self.p3_subscribe_num_sql , cursor_use , self.sql_col['p3_subscribe_num'])
+        self.p3_bind_level_proportion = _sql_get_from_db(self.p3_bind_level_proportion_sql , cursor_use , self.sql_col['p3_bind_level_proportion'])
+        self.p3_binding_status_type = _sql_get_from_db(self.p3_binding_status_type_sql , cursor_use , self.sql_col['p3_binding_status_type'])
+        self.p3_binding_status_type_ytd = _sql_get_from_db(self.p3_binding_status_type_ytd_sql , cursor_use , self.sql_col['p3_binding_status_type_ytd'])
+       
+        self.p4_Status_Membership = _sql_get_from_db(self.p4_Status_Membership_sql , cursor_use , self.sql_col['p4_Status_Membership'])
+        
+        self.p5_speciality = _sql_get_from_db(self.p5_speciality_sql , cursor_use , self.sql_col['p5_speciality'])
+        self.p5_outlet = _sql_get_from_db(self.p5_outlet_sql , cursor_use , self.sql_col['p5_outlet'])
+        
+        conn.close()
+
+        
+
+    def ppt2_db_overview_one(self):
+        
+        db_overview_one_slides = self.ppt_gen.slides[1]
+        
+        #左下图数据
+        all_customernum_token = self.p2_disby_purchase_status['nums'].sum(axis = 0)
+        self.p2_disby_purchase_status['percent'] = self.p2_disby_purchase_status['nums'] / all_customernum_token
+        
+        # 右下图数据处理
+        self._p2_Compstore_cal()
+        
+        
+        
+        #制作左下图 patr one
+        p2_disby_purchase_status_Chart = db_overview_one_slides.shapes[1]
+        p2_disby_purchase_status_ChartData = ChartData()
+        p2_disby_purchase_status_ChartData.categories = [u'active member' , u'prospects' , u'inactive member'] 
+        p2_disby_purchase_status_ChartData.add_series(u'人数占比',(self.p2_disby_purchase_status.loc[self.p2_disby_purchase_status['是否active']=='Active' , 'percent'].values[0],
+                                                                self.p2_disby_purchase_status.loc[self.p2_disby_purchase_status['是否active']=='P' , 'percent'].values[0], 
+                                                                self.p2_disby_purchase_status.loc[self.p2_disby_purchase_status['是否active']=='INactive' , 'percent'].values[0]))
+        
+        p2_disby_purchase_status_Chart.chart.replace_data(p2_disby_purchase_status_ChartData)
+        
+
+        p2_disby_type_token_one = self.p2_disby_type['quantity'].sum(axis = 0)
+        self.p2_disby_type['quantity_prop'] = self.p2_disby_type['quantity'] / p2_disby_type_token_one
+        
+        self.p2_disby_type['active_prop'] = self.p2_disby_type['active'] / self.p2_disby_type['quantity']
+        
+        p2_disby_type_left_Chart = db_overview_one_slides.shapes[10]
+        p2_disby_type_left_ChartData = ChartData()
+        p2_disby_type_left_ChartData.categories = [u'num_vol']
+ 
+        p2_disby_type_left_ChartData.add_series(u'P',[self.p2_disby_type.loc[self.p2_disby_type['level']==0 , 'quantity_prop'].values[0]])
+        p2_disby_type_left_ChartData.add_series(u'Member',[self.p2_disby_type.loc[self.p2_disby_type['level']==1 , 'quantity_prop'].values[0]])
+        p2_disby_type_left_ChartData.add_series(u'Silver',[self.p2_disby_type.loc[self.p2_disby_type['level']==2 , 'quantity_prop'].values[0]])
+        p2_disby_type_left_ChartData.add_series(u'Gold',[self.p2_disby_type.loc[self.p2_disby_type['level']==3 , 'quantity_prop'].values[0]])
+        p2_disby_type_left_ChartData.add_series(u'Diamond',[self.p2_disby_type.loc[self.p2_disby_type['level']==4 , 'quantity_prop'].values[0]])
+        p2_disby_type_left_Chart.chart.replace_data(p2_disby_type_left_ChartData)
+        
+        
+
+        p2_disby_type_left_Chart_two = db_overview_one_slides.shapes[0]
+        p2_disby_type_left_ChartData_two = ChartData()
+        p2_disby_type_left_ChartData_two.categories = [u'R12_num_vol']
+        p2_disby_type_left_ChartData_two.add_series(u'P',[self.p2_disby_type.loc[self.p2_disby_type['level']==0 , 'active_prop'].values[0]])
+        p2_disby_type_left_ChartData_two.add_series(u'Member',[self.p2_disby_type.loc[self.p2_disby_type['level']==1 , 'active_prop'].values[0]])
+        p2_disby_type_left_ChartData_two.add_series(u'Silver',[self.p2_disby_type.loc[self.p2_disby_type['level']==2 , 'active_prop'].values[0]])
+        p2_disby_type_left_ChartData_two.add_series(u'Gold',[self.p2_disby_type.loc[self.p2_disby_type['level']==3 , 'active_prop'].values[0]])
+        p2_disby_type_left_ChartData_two.add_series(u'Diamond',[self.p2_disby_type.loc[self.p2_disby_type['level']==4 , 'active_prop'].values[0]])
+        p2_disby_type_left_Chart_two.chart.replace_data(p2_disby_type_left_ChartData_two)
+        
+        p2_Compstore_Newcustomer_Chart = db_overview_one_slides.shapes[8]
+        p2_Compstore_Newcustomer_ChartData = ChartData()
+        p2_Compstore_Newcustomer_ChartData.categories = [u'FP' , u'OL']
+        p2_Compstore_Newcustomer_ChartData.add_series(u'YTD' , (self.p2_Compstore_Newcustomer.loc[self.p2_Compstore_Newcustomer['datatpye'] == 'FP' , 'ytd'].values[0],
+                                                                self.p2_Compstore_Newcustomer.loc[self.p2_Compstore_Newcustomer['datatpye'] == 'OL' , 'ytd'].values[0]))
+        
+        p2_Compstore_Newcustomer_ChartData.add_series(u'LY' , (self.p2_Compstore_Newcustomer.loc[self.p2_Compstore_Newcustomer['datatpye'] == 'FP' , 'ly'].values[0],
+                                                                self.p2_Compstore_Newcustomer.loc[self.p2_Compstore_Newcustomer['datatpye'] == 'OL' , 'ly'].values[0]))
+        
+        p2_Compstore_Newcustomer_ChartData.add_series(u'VS LY' , (self.p2_Compstore_Newcustomer.loc[self.p2_Compstore_Newcustomer['datatpye'] == 'FP' , 'VS_LY'].values[0],
+                                                                self.p2_Compstore_Newcustomer.loc[self.p2_Compstore_Newcustomer['datatpye'] == 'OL' , 'VS_LY'].values[0]))
+        p2_Compstore_Newcustomer_Chart.chart.replace_data(p2_Compstore_Newcustomer_ChartData)
+        
+        
+        
+        p2_Compstore_Existcustomer_Chart= db_overview_one_slides.shapes[9]
+        
+        p2_Compstore_Existcustomer_ChartData = ChartData()
+        p2_Compstore_Existcustomer_ChartData.categories = [u'FP' , u'OL']
+        p2_Compstore_Existcustomer_ChartData.add_series(u'YTD' , (self.p2_Compstore_Existcustomer.loc[self.p2_Compstore_Existcustomer['datatpye'] == 'FP' , 'ty'].values[0],
+                                                                self.p2_Compstore_Existcustomer.loc[self.p2_Compstore_Existcustomer['datatpye'] == 'OL' , 'ty'].values[0]))
+        
+        p2_Compstore_Existcustomer_ChartData.add_series(u'LY' , (self.p2_Compstore_Existcustomer.loc[self.p2_Compstore_Existcustomer['datatpye'] == 'FP' , 'ly'].values[0],
+                                                                self.p2_Compstore_Existcustomer.loc[self.p2_Compstore_Existcustomer['datatpye'] == 'OL' , 'ly'].values[0]))
+        
+        p2_Compstore_Existcustomer_ChartData.add_series(u'VS LY' , (self.p2_Compstore_Existcustomer.loc[self.p2_Compstore_Existcustomer['datatpye'] == 'FP' , 'VS_LY'].values[0],
+                                                                self.p2_Compstore_Existcustomer.loc[self.p2_Compstore_Existcustomer['datatpye'] == 'OL' , 'VS_LY'].values[0]))
+        p2_Compstore_Existcustomer_Chart.chart.replace_data(p2_Compstore_Existcustomer_ChartData)
+        
+        
+        # 以下是不固定的框体内容Customer distribution by purchase status
+        #self.p2_disby_purchase_status ; self.p2_disby_purchase_status_LY
+        datatoken = self.p2_disby_purchase_status.loc[self.p2_disby_purchase_status['是否active'] == 'Active' ,'nums'].values[0]
+        datatoken_str = '{:,}'.format(datatoken)
+        self._ppt_create_block(db_overview_one_slides ,False,'Arial' ,{'left': 8.37 ,'top':17.25 , 'weith':4.93 , 'height':1.14} \
+                                                   ,datatoken_str , Pt = 20 ) 
+        
+        datatoken = self.p2_disby_purchase_status_LY.loc[self.p2_disby_purchase_status_LY['status'] == 'active' ,'LY数据'].values[0]
+        datatoken_str = '{:,}'.format(datatoken)
+        self._ppt_create_block(db_overview_one_slides ,False,'Arial' ,{'left': 11.52 ,'top':18.17 , 'weith':4.93 , 'height':1.14} \
+                                                   ,datatoken_str , Pt = 20 ) 
+        
+        datatoken = self.p2_disby_purchase_status.loc[self.p2_disby_purchase_status['是否active'] == 'INactive' ,'nums'].values[0]
+        datatoken_str = '{:,}'.format(datatoken)
+        self._ppt_create_block(db_overview_one_slides ,False,'Arial' ,{'left': 2.35 ,'top':27.89 , 'weith':4.93 , 'height':1.14} \
+                                                   ,datatoken_str , Pt = 20 ) 
+        
+        datatoken = self.p2_disby_purchase_status_LY.loc[self.p2_disby_purchase_status_LY['status'] == 'inactive' ,'LY数据'].values[0]
+        datatoken_str = '{:,}'.format(datatoken)
+        self._ppt_create_block(db_overview_one_slides ,False,'Arial' ,{'left': 5.66 ,'top':28.84 , 'weith':4.93 , 'height':1.14} \
+                                                   ,datatoken_str , Pt = 20 ) 
+        
+        datatoken = self.p2_disby_purchase_status.loc[self.p2_disby_purchase_status['是否active'] == 'P' ,'nums'].values[0]
+        datatoken_str = '{:,}'.format(datatoken)
+        self._ppt_create_block(db_overview_one_slides ,False,'Arial' ,{'left': 10.99 ,'top':32.09 , 'weith':4.93 , 'height':1.14} \
+                                                   ,datatoken_str , Pt = 20 ) 
+        
+        datatoken = self.p2_disby_purchase_status_LY.loc[self.p2_disby_purchase_status_LY['status'] == 'P' ,'LY数据'].values[0]
+        datatoken_str = '{:,}'.format(datatoken)
+        self._ppt_create_block(db_overview_one_slides ,False,'Arial' ,{'left': 14.1 ,'top':32.99 , 'weith':4.93 , 'height':1.14} \
+                                                   ,datatoken_str , Pt = 20 ) 
+        
+        # 中下图的数据框
+        # test.p2_disby_type
+        p2_disby_type_copy = copy.deepcopy(self.p2_disby_type)
+        p2_disby_type_copy.sort_values(by = ['level'] , axis = 0 , ascending = False , inplace = True)
+        
+        p2_disby_type_copy_datatoken = p2_disby_type_copy['quantity'].values.tolist()
+        
+        def _int_tostr(_int):
+            _int_str = '{:,}'.format(_int)
+            return _int_str
+        
+        p2_disby_type_copy_datatoken_map = map(_int_tostr , p2_disby_type_copy_datatoken)
+        p2_disby_type_copy_datatoken_new = []
+        
+        for i in p2_disby_type_copy_datatoken_map:
+            p2_disby_type_copy_datatoken_new.append(i)
+        
+        p2_disby_type_copy_datatoken_new.insert(4 , ' ')
+        p2_disby_type_copy_datatoken_new.insert(3 , ' ')
+        p2_disby_type_copy_datatoken_new.insert(2 , ' ')
+        p2_disby_type_copy_datatoken_new.insert(1 , ' ')
+        p2_disby_type_copy_datatoken_new_use = "\n".join(p2_disby_type_copy_datatoken_new)
+        p2_disby_type_copy_datatoken_new_textbox = db_overview_one_slides.shapes.add_textbox(Cm(21.12),Cm(19.42) , Cm(4.59) , Cm(9.11))
+        p2_disby_type_copy_datatoken_new_textbox.text = p2_disby_type_copy_datatoken_new_use
+        for i in range(0,9):
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].font.name = '微软雅黑'
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].font.color.rgb = RGBColor(221,101,130)
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].vertical_anchor = MSO_ANCHOR.MIDDLE
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].font.bold = True
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].alignment = PP_ALIGN.LEFT
+        
+        
+        p2_disby_type_copy_act_datatoken = p2_disby_type_copy['active'].values.tolist()
+        
+        
+        p2_disby_type_copy_datatoken_map = map(_int_tostr , p2_disby_type_copy_act_datatoken)
+        p2_disby_type_copy_datatoken_new = []
+        
+        for i in p2_disby_type_copy_datatoken_map:
+            p2_disby_type_copy_datatoken_new.append(i)
+        
+        p2_disby_type_copy_datatoken_new.insert(4 , ' ')
+        p2_disby_type_copy_datatoken_new.insert(3 , ' ')
+        p2_disby_type_copy_datatoken_new.insert(2 , ' ')
+        p2_disby_type_copy_datatoken_new.insert(1 , ' ')
+        p2_disby_type_copy_datatoken_new_use = "\n".join(p2_disby_type_copy_datatoken_new)
+        p2_disby_type_copy_datatoken_new_textbox = db_overview_one_slides.shapes.add_textbox(Cm(40.98),Cm(19.42) , Cm(4.59) , Cm(9.11))
+        p2_disby_type_copy_datatoken_new_textbox.text = p2_disby_type_copy_datatoken_new_use
+        for i in range(0,9):
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].font.name = '微软雅黑'
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].font.color.rgb = RGBColor(221,101,130)
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].vertical_anchor = MSO_ANCHOR.MIDDLE
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].font.bold = True
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].alignment = PP_ALIGN.RIGHT
+            p2_disby_type_copy_datatoken_new_textbox.text_frame.paragraphs[i].font.size = Pt(23)
+            
+        
+        p2_explain_content_one = '{}.{}'.format(calendar.month_abbr[(dt.date.today().month-1)] , dt.date.today().year)
+
+        self._ppt_create_block(db_overview_one_slides ,False,'Calibri' ,{'left': 6.48 ,'top':34 , 'weith':4.93, 'height':1.14} \
+                                                   ,p2_explain_content_one , Pt = 20 ) 
+        
+ 
+        #以下是insight
+        p2_contentone_contentlist = [calendar.month_abbr[(dt.date.today().month-1)] , dt.date.today().year , self.p2_disby_purchase_status['nums'].sum(),
+                                    self.p2_disby_type.loc[self.p2_disby_type['level'] ==4 , 'quantity_prop'].values[0],
+                                    self.p2_disby_type.loc[self.p2_disby_type['level'] ==3 , 'quantity_prop'].values[0],
+                                    self.p2_disby_type.loc[self.p2_disby_type['level'] ==2 , 'quantity_prop'].values[0],
+                                    self.p2_disby_type.loc[self.p2_disby_type['level'] ==1 , 'quantity_prop'].values[0],
+                                    self.p2_disby_type.loc[self.p2_disby_type['level'] ==0 , 'quantity_prop'].values[0]]
+        
+        active_numtoken = self.p2_disby_purchase_status.loc[self.p2_disby_purchase_status['是否active']=='Active','nums' ].values[0]
+        p2_contenttwo_contentlist = [active_numtoken ,active_numtoken/(active_numtoken +self.p2_disby_purchase_status.loc[self.p2_disby_purchase_status['是否active']=='INactive','nums' ].values[0]),
+                                     self.p2_disby_type.loc[self.p2_disby_type['level'] ==4 , 'active_prop'].values[0],
+                                    self.p2_disby_type.loc[self.p2_disby_type['level'] ==3 , 'active_prop'].values[0],
+                                    self.p2_disby_type.loc[self.p2_disby_type['level'] ==2 , 'active_prop'].values[0],
+                                    self.p2_disby_type.loc[self.p2_disby_type['level'] ==1 , 'active_prop'].values[0]]
+        
+        if dt.date.today().month>= 7:
+            get_cal_finyear = "".join(['FY',str(dt.date.today().year + 1)[-2:]])
+            
+        else:
+            get_cal_finyear = "".join(['FY',str(dt.date.today().year)[-2:]])
+        
+        fp_inc_des_num = self.p2_Compstore_Newcustomer.loc[self.p2_Compstore_Newcustomer['datatpye'] =='FP','VS_LY'].values[0]
+        ol_inc_des_num = self.p2_Compstore_Newcustomer.loc[self.p2_Compstore_Newcustomer['datatpye'] =='OL','VS_LY'].values[0]
+        
+        p2_contentthree_contentlist = [get_cal_finyear,'decreased' if fp_inc_des_num <=0 else 'increased',abs(fp_inc_des_num) , 
+                                       'decreased' if ol_inc_des_num <=0 else 'increased',abs(ol_inc_des_num) ]
+        
+        
+        fp_inc_des_num_existing = self.p2_Compstore_Existcustomer.loc[self.p2_Compstore_Existcustomer['datatpye'] =='FP','VS_LY'].values[0]
+        ol_inc_des_num_existing = self.p2_Compstore_Existcustomer.loc[self.p2_Compstore_Existcustomer['datatpye'] =='OL','VS_LY'].values[0]
+        
+        p2_contentfour_contentlist = ['decreased' if fp_inc_des_num_existing <=0 else 'increased',abs(fp_inc_des_num_existing) , 
+                                       'decreased' if ol_inc_des_num_existing <=0 else 'increased',abs(ol_inc_des_num_existing) ]
+        
+        
+        p2_contentone = 'By the end of {} {}, total {:,} members in database, Totally {:.2%} diamond, {:.2%} gold ,{:.2%} silver and {:.2%} member and {:.2%} prospect in database;'\
+                                    .format(p2_contentone_contentlist[0] , p2_contentone_contentlist[1] ,p2_contentone_contentlist[2] ,p2_contentone_contentlist[3] ,\
+                                            p2_contentone_contentlist[4] ,p2_contentone_contentlist[5] , p2_contentone_contentlist[6] ,p2_contentone_contentlist[7] )
+                                    
+        p2_contenttwo = '{:,} members ({:.2%} accounted for total) purchased in R12M. Diamond active rate is {:.2%}, gold active rate is {:.2%},  silver active is {:.2%} and member active rate is {:.2%};'\
+                        .format(p2_contenttwo_contentlist[0] , p2_contenttwo_contentlist[1] , p2_contenttwo_contentlist[2], p2_contenttwo_contentlist[3], p2_contenttwo_contentlist[4], p2_contenttwo_contentlist[5])
+        p2_contentthree = 'Compared with LY, Specialty’s comp store new customer recruit in {} {} {:.0%}, outlet’s {} {:.0%};'\
+                            .format(p2_contentthree_contentlist[0],p2_contentthree_contentlist[1],p2_contentthree_contentlist[2],p2_contentthree_contentlist[3],p2_contentthree_contentlist[4])
+        
+        
+        p2_contentfour = 'Compared with LY, Specialty’s comp store existing customer {} {:.0%}, outlet’s {} {:.0%}'\
+                            .format(p2_contentfour_contentlist[0],p2_contentfour_contentlist[1],p2_contentfour_contentlist[2],p2_contentfour_contentlist[3])
+                            
+        insight_all = "\n".join([p2_contentone , p2_contenttwo , p2_contentthree , p2_contentfour])    
+                
+        p2_insight_box = db_overview_one_slides.shapes.placeholders[10]
+        p2_insight_box.text = insight_all
+        for i in range(0,4):
+            p2_insight_box.text_frame.paragraphs[i].font.name = 'Calibri'
+            p2_insight_box.text_frame.paragraphs[i].font.color.rgb = RGBColor(0,0,0)
+            p2_insight_box.text_frame.paragraphs[i].vertical_anchor = MSO_ANCHOR.MIDDLE
+            p2_insight_box.text_frame.paragraphs[i].font.bold = False
+            p2_insight_box.text_frame.paragraphs[i].alignment = PP_ALIGN.LEFT
+            p2_insight_box.text_frame.paragraphs[i].font.size = Pt(24)     
+                                
+    def ppt3_db_overview_two(self):
+        
+        db_overview_two_slides = self.ppt_gen.slides[2]
+        
+        all_binding_num = self.p3_bind_level_proportion['binding'].sum(axis = 0)
+        
+        self.p3_subscribe_bind_num = pd.DataFrame([[0],[0]] , columns = ['数量'] , index =['notbinding' , 'binding'])
+        
+        
+        self.p3_subscribe_bind_num.loc['binding' , '数量' ] = all_binding_num
+        self.p3_subscribe_bind_num.loc['notbinding' , '数量' ] = self.p3_subscribe_num.iloc[0,0] - all_binding_num
+        self.p3_subscribe_bind_num['比例'] = self.p3_subscribe_bind_num['数量'] / self.p3_subscribe_num.iloc[0,0]
+        self.p3_subscribe_bind_num.reset_index(inplace = True)
+        self.p3_subscribe_bind_num.rename(columns = {'index' :'binding_ornot'})
+        
+        # 中下图的数据
+        self.p3_binding_status_type['notbinding_num'] = self.p3_binding_status_type['quantity'] - self.p3_binding_status_type['binding']
+        self.p3_binding_status_type.loc['Row_sum'] = self.p3_binding_status_type.apply(lambda x : x.sum() , axis = 0)
+        
+        
+        self.p3_binding_status_type['binding_prop'] = self.p3_binding_status_type['binding'] / self.p3_binding_status_type['quantity']
+        self.p3_binding_status_type['notbinding_prop'] = self.p3_binding_status_type['notbinding_num'] / self.p3_binding_status_type['quantity']
+        
+        
+        # 右下图的数据
+        self.p3_binding_status_type_ytd['notbinding_num'] = self.p3_binding_status_type_ytd['quantity'] - self.p3_binding_status_type_ytd['binding']
+        self.p3_binding_status_type_ytd.loc['Row_sum'] = self.p3_binding_status_type_ytd.apply(lambda x : x.sum() , axis = 0)
+        
+     
+        self.p3_binding_status_type_ytd['binding_prop'] = self.p3_binding_status_type_ytd['binding'] / self.p3_binding_status_type_ytd['quantity']
+        self.p3_binding_status_type_ytd['notbinding_prop'] = self.p3_binding_status_type_ytd['notbinding_num'] / self.p3_binding_status_type_ytd['quantity']
+
+       # 左下图
+        p3_subscribe_bind_num_Chart = db_overview_two_slides.shapes[2]
+        p3_subscribe_bind_num_ChartData = ChartData()
+        p3_subscribe_bind_num_ChartData.categories = [u'not binding',u'binding']
+        p3_subscribe_bind_num_ChartData.add_series(u'数量',(self.p3_subscribe_bind_num.loc[self.p3_subscribe_bind_num['index']== 'notbinding' , '数量'].values[0]  ,\
+                                                                   self.p3_subscribe_bind_num.loc[self.p3_subscribe_bind_num['index']== 'binding' , '数量'].values[0] ))
+        p3_subscribe_bind_num_ChartData.add_series(u'比例',(self.p3_subscribe_bind_num.loc[self.p3_subscribe_bind_num['index']== 'notbinding' , '比例'].values[0] ,\
+                                                                   self.p3_subscribe_bind_num.loc[self.p3_subscribe_bind_num['index']== 'binding' , '比例'].values[0] ))
+        
+        p3_subscribe_bind_num_Chart.chart.replace_data(p3_subscribe_bind_num_ChartData)
+       
+        # 中下图
+        p3_binding_status_type_Chart = db_overview_two_slides.shapes[4] 
+        p3_binding_status_type_ChartData = ChartData()
+        p3_binding_status_type_ChartData.categories = [u'Diamond' , u'Gold' , u'Silver' , u'Member',u'Prospect' , u'Total']
+        p3_binding_status_type_ChartData.add_series(u'binding',(self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==4 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==3 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==2 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==1 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==0 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==10 , 'binding_prop'].values[0]))
+        
+        p3_binding_status_type_ChartData.add_series(u'not binding',(self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==4 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==3 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==2 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==1 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==0 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type.loc[self.p3_binding_status_type['level']==10 , 'notbinding_prop'].values[0]))
+        p3_binding_status_type_Chart.chart.replace_data(p3_binding_status_type_ChartData)
+        
+        # 右下图
+        p3_binding_status_type_ytd_Chart = db_overview_two_slides.shapes[5] 
+        p3_binding_status_type_ytd_ChartData = ChartData()
+        p3_binding_status_type_ytd_ChartData.categories = [u'Diamond' , u'Gold' , u'Silver' , u'Member',u'Prospect' , u'Total']
+        p3_binding_status_type_ytd_ChartData.add_series(u'binding',(self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==4 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==3 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==2 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==1 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==0 , 'binding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==10 , 'binding_prop'].values[0]))
+        
+        p3_binding_status_type_ytd_ChartData.add_series(u'not binding',(self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==4 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==3 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==2 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==1 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==0 , 'notbinding_prop'].values[0],
+                                                               self.p3_binding_status_type_ytd.loc[self.p3_binding_status_type_ytd['level']==10 , 'notbinding_prop'].values[0]))
+        p3_binding_status_type_ytd_Chart.chart.replace_data(p3_binding_status_type_ytd_ChartData)
+        
+        
+        
+        # 刷上各等级的比例
+        
+        p3_bind_level_proportion_use = copy.deepcopy(self.p3_bind_level_proportion)
+        p3_bind_level_proportion_use['porp'] = p3_bind_level_proportion_use['binding'] / self.p3_subscribe_num['sub_num'].values[0]
+        
+        data_token = p3_bind_level_proportion_use.loc[p3_bind_level_proportion_use['level'] == 4 , 'porp'].values[0]
+        data_token_str = '{:.2%}'.format(data_token)
+        self._ppt_create_block(db_overview_two_slides ,False,'Calibri' , {'left': 6.81 ,'top':25.46 , 'weith':3.08, 'height':1.31} \
+                                                   , data_token_str , Pt = 24 ) 
+        data_token = p3_bind_level_proportion_use.loc[p3_bind_level_proportion_use['level'] == 3 , 'porp'].values[0]
+        data_token_str = '{:.2%}'.format(data_token)
+        self._ppt_create_block(db_overview_two_slides ,False,'Calibri' , {'left': 5.63 ,'top':26.95 , 'weith':3.08, 'height':1.31} \
+                                                   , data_token_str , Pt = 24 ) 
+        data_token = p3_bind_level_proportion_use.loc[p3_bind_level_proportion_use['level'] == 2 , 'porp'].values[0]
+        data_token_str = '{:.2%}'.format(data_token)
+        self._ppt_create_block(db_overview_two_slides ,False,'Calibri' , {'left': 5.98 ,'top':28.5 , 'weith':3.08, 'height':1.31} \
+                                                   , data_token_str , Pt = 24 ) 
+        data_token = p3_bind_level_proportion_use.loc[p3_bind_level_proportion_use['level'] == 1 , 'porp'].values[0]
+        data_token_str = '{:.2%}'.format(data_token)
+        self._ppt_create_block(db_overview_two_slides ,False,'Calibri' , {'left': 7.37 ,'top':30.11 , 'weith':3.08, 'height':1.31} \
+                                                   , data_token_str , Pt = 24 ) 
+        data_token = p3_bind_level_proportion_use.loc[p3_bind_level_proportion_use['level'] == 0 , 'porp'].values[0]
+        data_token_str = '{:.2%}'.format(data_token)
+        self._ppt_create_block(db_overview_two_slides ,False,'Calibri' , {'left': 7.37 ,'top':31.56 , 'weith':3.08, 'height':1.31} \
+                                                   , data_token_str , Pt = 24 ) 
+        
+        # 右下角内容
+        context_token = '{}.{}'.format(calendar.month_abbr[(dt.date.today().month-1)] , str(dt.date.today().year))
+        self._ppt_create_block(db_overview_two_slides ,False, 'Calibri' ,{'left': 61.33 ,'top':34.39 , 'weith':3.66, 'height':1.11} \
+                                                   , context_token  , Pt = 20) 
+        
+        
+        
+        # insight
+        p3_contentone_list = [self.p3_subscribe_num['sub_num'].values[0], calendar.month_abbr[(dt.date.today().month-1)] , \
+                              self.p3_subscribe_bind_num.loc[self.p3_subscribe_bind_num['index']=='binding','比例'].values[0]]
+        p3_contenttwo_list = [self.p3_binding_status_type.loc[self.p3_binding_status_type['level'] == 4 , 'binding_prop'].values[0],
+                              self.p3_binding_status_type.loc[self.p3_binding_status_type['level'] == 3 , 'binding_prop'].values[0],
+                              self.p3_binding_status_type.loc[self.p3_binding_status_type['level'] == 2 , 'binding_prop'].values[0],
+                              self.p3_binding_status_type.loc[self.p3_binding_status_type['level'] == 1 , 'binding_prop'].values[0]]
+        
+        
+        p3_contentone = 'WeChat subscriber has reached {:,} by the end of  {} and {:.0%} were bonded with ECRM.'\
+                    .format(p3_contentone_list[0] , p3_contentone_list[1] , p3_contentone_list[2])
+        p3_contenttwo = '{:.2%} diamond, {:.0%} gold, {:.0%} silver, {:.0%} member have been converted to WeChat members.'\
+                    .format(p3_contenttwo_list[0] , p3_contenttwo_list[1] , p3_contenttwo_list[2] , p3_contenttwo_list[3])
+        
+        p3_content_all = '\n'.join([p3_contentone,p3_contenttwo])
+        
+        p3_content_box = db_overview_two_slides.shapes.placeholders[10]
+        p3_content_box.text = p3_content_all
+        for i in range(0,2):
+            p3_content_box.text_frame.paragraphs[i].font.name = 'Calibri'
+            p3_content_box.text_frame.paragraphs[i].font.color.rgb = RGBColor(0,0,0)
+            p3_content_box.text_frame.paragraphs[i].vertical_anchor = MSO_ANCHOR.MIDDLE
+            p3_content_box.text_frame.paragraphs[i].font.bold = False
+            p3_content_box.text_frame.paragraphs[i].alignment = PP_ALIGN.LEFT
+            p3_content_box.text_frame.paragraphs[i].font.size = Pt(24)
+    
+    def ppt4_status_membership_grade(self,history_data):
+        
+        ppt_status_membership_grade_slides = self.ppt_gen.slides[3]
+        
+        # 左图数据
+        p4_use_p2disby_type = copy.deepcopy(self.p2_disby_type)
+    
+        disby_type_history_file = pd.read_excel(history_data,sheet_name = 'Membership_grade_left')
+        
+        toward_dict = {4:'Diamond' , 3:'Gold',2:'Silver',1:'Member',0:'Prospect'}
+        p4_use_p2disby_type['level'] = p4_use_p2disby_type['level'].map(toward_dict)
+        p4_use_p2disby_type.drop(columns = ['active'],inplace = True)
+        p4_use_p2disby_type_pivot = p4_use_p2disby_type.pivot_table(values = ['quantity'] , columns = ['level'])
+        p4_use_p2disby_type_pivot.reset_index(inplace = True)
+        p4_use_p2disby_type_pivot['month'] =  calendar.month_abbr[(dt.date.today().month-1)]
+        p4_use_p2disby_type_pivot.drop(columns = ['index'] , inplace =True)
+        p4_use_p2disby_type_withhistory = pd.concat([disby_type_history_file , p4_use_p2disby_type_pivot] , axis = 0)
+        
+        if p4_use_p2disby_type_withhistory.loc[p4_use_p2disby_type_withhistory['month'] == 'Jul'].shape[0] ==1:
+            pass
+        else:
+            Jul_index = p4_use_p2disby_type_withhistory.loc[p4_use_p2disby_type_withhistory['month'] == 'Jul'].index[-1]
+            p4_use_p2disby_type_withhistory = p4_use_p2disby_type_withhistory.iloc[Jul_index: , :]
+
+        self.p4_use_p2disby_type_withhistory = p4_use_p2disby_type_withhistory
+        
+        
+        p4_use_p2disby_type_alldata = copy.deepcopy(p4_use_p2disby_type_withhistory)
+        
+        month_token = ['Jul','Aug' , 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
+
+        month_current = p4_use_p2disby_type_alldata['month'].tolist()
+        month_need = set(month_token) - set(month_current)
+        month_need = list(month_need)
+        month_need.sort(key = month_token.index)
+        monthdata_token = zeros((len(month_need) , 5) , dtype = 'int64')
+        monthdata_token_df = pd.DataFrame(monthdata_token , columns = ['Prospect','Member','Silver','Gold','Diamond'] ,index = month_need)
+        monthdata_token_df.reset_index(inplace = True)
+        monthdata_token_df.rename(columns = {'index':'month'} , inplace = True)
+        
+        monthdata_token_df.replace(0,'' , inplace = True)
+        
+        p4_use_p2disby_type_alldata = pd.concat([p4_use_p2disby_type_alldata , monthdata_token_df] , axis = 0)
+        
+        self.p4_use_p2disby_type_alldata = p4_use_p2disby_type_alldata
+
+        # 右图数据
+        self.p4_Status_Membership['levle_lm'].fillna(-5 , inplace = True)
+        p4_Status_Membership_dict = {-5:'New Recruit',0:'Prospect',1:'Member',2:'Silver',3:'Gold',4:'Diamond'}
+        self.p4_Status_Membership['levle_lm'] = self.p4_Status_Membership['levle_lm'].astype('int64')
+        self.p4_Status_Membership['levle_lm'] = self.p4_Status_Membership['levle_lm'].map(p4_Status_Membership_dict)
+        
+        # 左图作图
+        p4_use_p2disby_type_alldata_Chart = ppt_status_membership_grade_slides.shapes[4]
+        p4_use_p2disby_type_alldata_ChartData = ChartData()
+        p4_use_p2disby_type_alldata_ChartData.categories = self.p4_use_p2disby_type_alldata['month'].tolist()
+        p4_use_p2disby_type_alldata_ChartData.add_series(u'Prospect',self.p4_use_p2disby_type_alldata['Prospect'].tolist())
+        p4_use_p2disby_type_alldata_ChartData.add_series(u'Member',self.p4_use_p2disby_type_alldata['Member'].tolist())
+        p4_use_p2disby_type_alldata_ChartData.add_series(u'Silver',self.p4_use_p2disby_type_alldata['Silver'].tolist())
+        p4_use_p2disby_type_alldata_ChartData.add_series(u'Gold',self.p4_use_p2disby_type_alldata['Gold'].tolist())
+        p4_use_p2disby_type_alldata_ChartData.add_series(u'Diamond',self.p4_use_p2disby_type_alldata['Diamond'].tolist())
+        p4_use_p2disby_type_alldata_Chart.chart.replace_data(p4_use_p2disby_type_alldata_ChartData)
+        
+        # 右表
+        Status_Membership_table  = ppt_status_membership_grade_slides.shapes[0]
+        Status_Membership_use = self.p4_Status_Membership[['prospects', 'Member', 'Silver', 'Gold', 'Diamond']].values
+        for i in range(Status_Membership_use.shape[0]):
+            for j in range(Status_Membership_use.shape[1]):
+                if Status_Membership_use[i,j] !=0:
+                    Status_Membership_table.table.cell(i+1,j+1).text = "{:,}".format(Status_Membership_use[i,j])
+                else:
+                    Status_Membership_table.table.cell(i+1,j+1).text = ' '
+                Status_Membership_table.table.cell(i+1,j+1).text_frame.paragraphs[0].font.size = Pt(18)
+                Status_Membership_table.table.cell(i+1,j+1).text_frame.paragraphs[0].font.bold = False
+                Status_Membership_table.table.cell(i+1,j+1).text_frame.paragraphs[0].font.color.rgb = RGBColor(0,0,0)
+                Status_Membership_table.table.cell(i+1,j+1).text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
+                Status_Membership_table.table.cell(i+1,j+1).text_frame.paragraphs[0].vertical_anchor = MSO_ANCHOR.MIDDLE
+                Status_Membership_table.table.cell(i+1,j+1).text_frame.paragraphs[0].font.name = '微软雅黑'
+
+        
+        
+        ## 刷上不固定数据
+        
+        monthtoken = calendar.month_abbr[(dt.date.today().month-1)]
+        monthtoken = monthtoken +'.'
+        self._ppt_create_block(ppt_status_membership_grade_slides ,False, 'Calibri' ,{'left': 54.52 ,'top':12.81 , 'weith':2.18, 'height':1.82} \
+                                                   , monthtoken  , Pt = 24 , bold = 1) 
+        
+        self._ppt_create_block(ppt_status_membership_grade_slides ,False, 'Calibri' ,{'left': 50.3 ,'top':34.04 , 'weith':2.14, 'height':1.11} \
+                                                   , monthtoken  , Pt = 20 ) 
+        
+        new_recruit_token = self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'New Recruit' , 'prospects'].values[0] +\
+                            self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Prospect' , 'prospects'].values[0] +\
+                            self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Member' , 'prospects'].values[0] +\
+                            self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Silver' , 'prospects'].values[0] +\
+                            self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Gold' , 'prospects'].values[0] +\
+                            self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Diamond' , 'prospects'].values[0] 
+        
+        
+        p5_contentone_list = [monthtoken, str(dt.date.today().year) , new_recruit_token , 
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'New Recruit' , 'prospects'].values[0],
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'New Recruit' , 'Member'].values[0] ,
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'New Recruit' , 'Silver'].values[0] ,
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'New Recruit' , 'Gold'].values[0] , 
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'New Recruit' , 'Diamond'].values[0]]
+        
+        p5_contentone = 'In {} {}, totally new recruit {:,} Members (Including {:,} prospects, {:,} member, {:,} silver, {:,} gold and {:,} diamond)'\
+                        .format(p5_contentone_list[0] ,p5_contentone_list[1] ,p5_contentone_list[2] ,p5_contentone_list[3] ,p5_contentone_list[4],p5_contentone_list[5]
+                        ,p5_contentone_list[6],p5_contentone_list[7])
+        
+        p5_contenttwo_list = [self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'New Recruit' , 'Gold'].values[0] + \
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Prospect' , 'Gold'].values[0] , 
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Member' , 'Gold'].values[0] , 
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Silver' , 'Gold'].values[0] ,
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'New Recruit' , 'Diamond'].values[0] + \
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Prospect' , 'Diamond'].values[0] , 
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Silver' , 'Diamond'].values[0],
+                              self.p4_Status_Membership.loc[self.p4_Status_Membership['levle_lm'] == 'Gold' , 'Diamond'].values[0]]
+        
+        
+        p5_contenttwo = '{:,} new customers, {:,} members ,{:,} silvers moved to gold ; {:,} new customers  , {:,} silvers and {:,} gold moved to diamond.'\
+            .format(p5_contenttwo_list[0],p5_contenttwo_list[1],p5_contenttwo_list[2],p5_contenttwo_list[3],p5_contenttwo_list[4],p5_contenttwo_list[5])
+        
+        p5_content_all = "\n".join([p5_contentone , p5_contenttwo])
+        
+        p5_content_all_box = ppt_status_membership_grade_slides.shapes.placeholders[10]
+        p5_content_all_box.text = p5_content_all
+        for i in range(0,2):
+            p5_content_all_box.text_frame.paragraphs[i].font.name = 'Calibri'
+            p5_content_all_box.text_frame.paragraphs[i].font.color.rgb = RGBColor(0,0,0)
+            p5_content_all_box.text_frame.paragraphs[i].vertical_anchor = MSO_ANCHOR.MIDDLE
+            p5_content_all_box.text_frame.paragraphs[i].font.bold = False
+            p5_content_all_box.text_frame.paragraphs[i].alignment = PP_ALIGN.LEFT
+            p5_content_all_box.text_frame.paragraphs[i].font.size = Pt(24)
+    
+    
+    def ppt5_DataCap_bymonth(self,history_data):
+        
+        ppt_DataCap_bymonth_slides = self.ppt_gen.slides[4]
+        
+        def p5_create_ChartData( spec_outlet_Data, spec_outle_history):
+            
+            def _get_finyear_last_func(_str):
+                int_get = int(_str.group())
+                int_get -= 1
+                
+                return str(int_get)
+            
+            if dt.date.today().month>= 7:
+                get_cal_finyear = "".join(['FY',str(dt.date.today().year + 1)[-2:]])
+                
+            else:
+                get_cal_finyear = "".join(['FY',str(dt.date.today().year)[-2:]])
+            
+            get_cal_finyear_last = re.sub('[0-9]+' , _get_finyear_last_func , get_cal_finyear)
+            
+            get_cal_finyear_name = get_cal_finyear + '留资率'
+            get_cal_finyear_lastmonth_name = get_cal_finyear + '上月留资率'
+            get_cal_finyear_last_name = get_cal_finyear_last+'留资率'
+            get_cal_finyear_lastmonth_last_name = get_cal_finyear_last+'上月留资率'
+            
+            
+            spec_outle_history.iloc[-2,0] = get_cal_finyear_last+' YTD'
+            spec_outle_history.iloc[-1,0] = get_cal_finyear +' YTD'
+            
+            spec_outle_history.loc[spec_outle_history['month'] == get_cal_finyear_name.replace('留资率', ' YTD') , 'Capture'] = float(spec_outlet_Data[get_cal_finyear_name].values[0])
+            spec_outle_history.loc[spec_outle_history['month'] == get_cal_finyear_name.replace('留资率', ' YTD') , 'Not Capture'] = 1- float(spec_outlet_Data[get_cal_finyear_name].values[0])
+            
+            spec_outle_history.loc[spec_outle_history['month'] == get_cal_finyear_last_name.replace('留资率', ' YTD') , 'Capture'] = float(spec_outlet_Data[get_cal_finyear_last_name].values[0])
+            spec_outle_history.loc[spec_outle_history['month'] == get_cal_finyear_last_name.replace('留资率', ' YTD') , 'Not Capture'] = 1- float(spec_outlet_Data[get_cal_finyear_last_name].values[0])
+            
+            spec_outlet_Data_lastmonth_data = spec_outlet_Data[[get_cal_finyear_lastmonth_name , get_cal_finyear_lastmonth_last_name]]
+
+            spec_outlet_Data_lastmonth_data[get_cal_finyear_lastmonth_name.replace('上月留资率','上月未留资率')] = 1 - float(spec_outlet_Data_lastmonth_data[get_cal_finyear_lastmonth_name].values[0])
+            spec_outlet_Data_lastmonth_data[get_cal_finyear_lastmonth_last_name.replace('上月留资率','上月未留资率')] = 1 - float(spec_outlet_Data_lastmonth_data[get_cal_finyear_lastmonth_last_name].values[0])
+            
+            
+            cap_token = pd.DataFrame(zeros((3,3) , dtype = 'int64') , columns = ['month','Capture' ,'Not Capture' ])
+            
+            cap_token.iloc[0,0] = ' '+str(calendar.month_abbr[(dt.date.today().month-1)])  +'-' +  re.search('[0-9]+',get_cal_finyear_last_name).group()
+            cap_token.iloc[1,0] = ' '+str(calendar.month_abbr[(dt.date.today().month-1)])  +'-' +  re.search('[0-9]+',get_cal_finyear_name).group()
+            
+            cap_token.iloc[0,1] = float(spec_outlet_Data_lastmonth_data[get_cal_finyear_lastmonth_last_name].values[0])
+            cap_token.iloc[0,2] = 1 - float(spec_outlet_Data_lastmonth_data[get_cal_finyear_lastmonth_last_name].values[0])
+            
+            
+            cap_token.iloc[1,1] = float(spec_outlet_Data_lastmonth_data[get_cal_finyear_lastmonth_name].values[0])
+            cap_token.iloc[1,2] = 1 - float(spec_outlet_Data_lastmonth_data[get_cal_finyear_lastmonth_name].values[0])
+            cap_token.replace(0,'' , inplace = True)
+            
+            spec_outle_history.fillna('' , inplace = True)
+
+            final_use = pd.concat([spec_outle_history.iloc[:-2,:],cap_token , spec_outle_history.iloc[-2:,:]] , axis = 0)
+            return final_use
+
+        p5_speciality_data_use = copy.deepcopy(self.p5_speciality)
+        p5_outlet_data_use = copy.deepcopy(self.p5_outlet)
+        p5_speciality_history_data = pd.read_excel(history_data, sheet_name = 'DataCap_spec')
+        p5_outlet_history_data = pd.read_excel(history_data, sheet_name = 'DataCap_outlet')
+        
+        self.p5_speciality_data_ChartData_use = p5_create_ChartData(p5_speciality_data_use,p5_speciality_history_data)
+        self.p5_outlet_data_ChartData_use = p5_create_ChartData(p5_outlet_data_use,p5_outlet_history_data)
+        
+        if dt.date.today().month>= 7:
+            get_cal_finyear = "".join([str(dt.date.today().year + 1)[-2:]])
+            
+        else:
+            get_cal_finyear = "".join([str(dt.date.today().year)[-2:]])\
+            
+        def _get_finyear_last_func(_str):
+                
+            int_get = int(_str.group())
+            int_get -= 1
+            
+            return str(int_get)
+
+        
+        get_cal_finyear_last = re.sub('[0-9]+' , _get_finyear_last_func , get_cal_finyear)
+
+        last_finyear_start = "".join(['Jul-' , get_cal_finyear_last])
+        
+        p5_speciality_data_useindex = self.p5_speciality_data_ChartData_use.loc[\
+                                                self.p5_speciality_data_ChartData_use['month'].str.contains(last_finyear_start)].index[0]
+        self.p5_speciality_data_ChartData_use = self.p5_speciality_data_ChartData_use.iloc[p5_speciality_data_useindex:,:]
+        
+        p5_outlet_data_useindex = self.p5_outlet_data_ChartData_use.loc[\
+                                                self.p5_outlet_data_ChartData_use['month'].str.contains(last_finyear_start)].index[0]
+        self.p5_outlet_data_ChartData_use = self.p5_outlet_data_ChartData_use.iloc[p5_outlet_data_useindex:,:]
+        
+        
+        def _add_FY(str_):
+            str_use = str_.group()
+            
+            str_use = str_use.replace('-' , '')
+            
+            str_use = '-FY'+str_use
+            
+            return str_use
+        
+        p5_specialty_Chart = ppt_DataCap_bymonth_slides.shapes[4]
+        p5_specialty_ChartData = ChartData()
+        specialty_categories = self.p5_speciality_data_ChartData_use['month'].tolist()
+        specialty_categories_renew = []
+        for one_cat in specialty_categories:
+            one_cat_new = re.sub('-[0-9]+',_add_FY , one_cat)
+            specialty_categories_renew.append(one_cat_new)
+            
+        p5_specialty_ChartData.categories = specialty_categories_renew
+        p5_specialty_ChartData.add_series(u'Capture' , self.p5_speciality_data_ChartData_use['Capture'].tolist())
+        p5_specialty_ChartData.add_series(u'Not Capture' , self.p5_speciality_data_ChartData_use['Not Capture'].tolist())
+        p5_specialty_Chart.chart.replace_data(p5_specialty_ChartData)
+        
+        
+        p5_outlet_Chart = ppt_DataCap_bymonth_slides.shapes[5]
+        p5_outlet_ChartData = ChartData()
+        outlet_categories = self.p5_outlet_data_ChartData_use['month'].tolist()
+        outlet_categories_renew = []
+        for one_cat in outlet_categories:
+            one_cat_new = re.sub('-[0-9]+',_add_FY , one_cat)
+            outlet_categories_renew.append(one_cat_new)
+            
+        p5_outlet_ChartData.categories = outlet_categories_renew
+        p5_outlet_ChartData.add_series(u'Capture' , self.p5_outlet_data_ChartData_use['Capture'].tolist())
+        p5_outlet_ChartData.add_series(u'Not Capture' , self.p5_outlet_data_ChartData_use['Not Capture'].tolist())
+        
+        p5_outlet_Chart.chart.replace_data(p5_outlet_ChartData)
+        
+        # 固定的数据框
+        datetoken = calendar.month_abbr[(dt.date.today().month-1)]
+        datetoken = datetoken +'.'
+        datetoken = datetoken + ' ' + str(dt.date.today().year)
+        self._ppt_create_block(ppt_DataCap_bymonth_slides ,False, 'Calibri' ,{'left': 50.21 ,'top':33.86 , 'weith':2.21, 'height':1.49} \
+                                                   , datetoken  , Pt = 20)
+        
+        
+        if dt.date.today().month>= 7:
+            get_cal_finyear = "".join(['FY',str(dt.date.today().year + 1)[-2:]])
+            
+        else:
+            get_cal_finyear = "".join(['FY',str(dt.date.today().year)[-2:]])
+            
+        p5_content_list = [get_cal_finyear,self.p5_speciality_data_ChartData_use.loc[self.p5_speciality_data_ChartData_use['month'].str.contains(get_cal_finyear) , 'Capture'].values[0] ,\
+                            self.p5_outlet_data_ChartData_use.loc[self.p5_outlet_data_ChartData_use['month'].str.contains(get_cal_finyear) , 'Capture'].values[0]]
+        
+        p5_content = '{} YTD specialty data capture rate is {:.0%} and outlet data capture rate is {:.0%}.'\
+            .format(p5_content_list[0] , p5_content_list[1] , p5_content_list[2])
+        
+        p5_content_box = ppt_DataCap_bymonth_slides.shapes.placeholders[10]
+        p5_content_box.text = p5_content
+        
+        p5_content_box.text_frame.paragraphs[0].font.name = 'Calibri'
+        p5_content_box.text_frame.paragraphs[0].font.color.rgb = RGBColor(0,0,0)
+        p5_content_box.text_frame.paragraphs[0].vertical_anchor = MSO_ANCHOR.MIDDLE
+        p5_content_box.text_frame.paragraphs[0].font.bold = False
+        p5_content_box.text_frame.paragraphs[0].alignment = PP_ALIGN.LEFT
+        p5_content_box.text_frame.paragraphs[0].font.size = Pt(32)
+         
+    def store_history_data(self,history_data):
+        with pd.ExcelWriter(history_data) as Writer:
+            self.p5_speciality_data_ChartData_use.to_excel(Writer ,sheet_name = 'DataCap_spec' , index = False)
+            self.p5_outlet_data_ChartData_use.to_excel(Writer , sheet_name = 'DataCap_outlet' , index = False)
+            self.p4_use_p2disby_type_withhistory.to_excel(Writer , sheet_name = 'Membership_grade_left',index = False)
+        
+
+    def _p2_Compstore_cal(self):
+        self.p2_Compstore_Newcustomer['VS_LY'] = self.p2_Compstore_Newcustomer['ytd'] - self.p2_Compstore_Newcustomer['ly']
+        self.p2_Compstore_Newcustomer['VS_LY'] = self.p2_Compstore_Newcustomer['VS_LY'] / self.p2_Compstore_Newcustomer['ly']
+        
+        self.p2_Compstore_Existcustomer['VS_LY'] = self.p2_Compstore_Existcustomer['ty'] - self.p2_Compstore_Existcustomer['ly']
+        self.p2_Compstore_Existcustomer['VS_LY'] = self.p2_Compstore_Existcustomer['VS_LY'] / self.p2_Compstore_Existcustomer['ly']
+         
+        
+    
+    
+    def _ppt_create_block(self , slide ,rectangle,font_name, space_size_dict , text_add,**kwargs):    
+        if rectangle == True:
+            slide_shape = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE,Cm(space_size_dict['left']),Cm(space_size_dict['top']),Cm(space_size_dict['weith']),Cm(space_size_dict['height']))
+            slide_shape.fill.solid() 
+            slide_shape.fill.fore_color.rgb = RGBColor(255,255,255) 
+            slide_shape.line.color.rgb = RGBColor(0,0,0) 
+
+        text_token = slide.shapes.add_textbox(Cm(space_size_dict['left']),Cm(space_size_dict['top']) , Cm(space_size_dict['weith']) , Cm(space_size_dict['height']))
+        text_token.text = text_add
+        text_token.line
+        text_token.text_frame.paragraphs[0].font.name = font_name
+        text_token.text_frame.paragraphs[0].font.color.rgb = RGBColor(0,0,0)
+        text_token.text_frame.paragraphs[0].vertical_anchor = MSO_ANCHOR.MIDDLE
+        text_token.text_frame.paragraphs[0].font.bold = False 
+        
+        
+        if kwargs.get('bold') is not  None:
+            text_token.text_frame.paragraphs[0].font.bold = True   
+        if kwargs.get('Pt')is not  None:
+            text_token.text_frame.paragraphs[0].font.size = Pt(kwargs['Pt'])
+        if kwargs.get('left_align') is not  None:
+            text_token.text_frame.paragraphs[0].alignment = PP_ALIGN.LEFT
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
