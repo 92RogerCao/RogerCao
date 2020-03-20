@@ -1,0 +1,469 @@
+
+import pandas as pd
+forddealer = pd.read_excel(r'' )
+print('福特经销商名单导入完成！')
+
+db_col_dict = {"clueCode":"线索编号",
+    "customerName":"客户姓名",
+    "mobileNumber":"客户电话号",
+    "dealerName":"经销商名称",
+    "channelName":"来源渠道",
+    "provinceName":"省份",
+    "cityName":"城市",
+    "targetBrandName":"意向品牌",
+    "operatingFlag":"线索状态",
+    "pushFlag":"是否下发",
+    "receivetime":"导入时间",
+    "assignTime":"清洗时间",
+    "secondChannel":"二级渠道",
+    "rankCode":"线索等级",
+    "clueType":"线索类型",
+    "DealerCode":"经销商"}
+
+def mypickle(data):
+    import pickle
+    import os
+    import datetime as dt
+    
+    datapickle_name = "".join(['ford' , str(dt.datetime.today())[:10].replace("-",'') , '.pickle'])
+    datapickle_path = r'D:\领界\rawdatakeep'
+    datapickle_namepath = os.path.join(datapickle_path , datapickle_name)
+    with open(datapickle_namepath , 'wb') as f:
+        pickle.dump(data ,f)
+        print('已经存储历史数据',datapickle_name)
+    return None
+
+def customerdata_from_database(sqlcode):
+    import pyodbc
+    import numpy as np
+    import pandas as pd
+     
+
+    server = "192.168.1.40,1433"    
+    user = ""
+    password = ""
+    driver = ''
+    database = ''
+    driver = ''
+     
+    conn = pyodbc.connect(driver=driver, server=server, user=user, password=password, database=database)
+    cursor =conn.cursor()
+    cursor.execute(sqlcode)
+    row =cursor.fetchall()
+    
+    conn.close()
+    
+    columns_need = ['Id','customerName','mobileNumber','targetBrandName',
+    'channelName','secondChannel','dealerName',
+    'operatingFlag','provinceName','cityName',
+    'rankCode','CreateTime','UpdateTime',
+    'assignTime','receivetime','clueCode',
+    'clueType','pushFlag','BatchId','PhoneNumberMD5','IsDelete']
+    
+    array_token = np.zeros((len(row),21))
+    
+    data_token = pd.DataFrame(array_token , columns = columns_need)
+    
+    for i in columns_need:
+        data_token[i] = ''
+    
+    for row_index ,row in enumerate(row) : 
+        for value_index , value in enumerate(row):
+            data_token.iloc[row_index,value_index] = value
+            '''list与dict能之间转换到df格式，但需按列排列数据'''
+    
+    
+    createtime_list = data_token['CreateTime'].unique().tolist()
+    createtime_list.sort()
+    createtime = str(createtime_list.pop()) ; del createtime_list
+    
+    
+    _logger_myself(createtime)
+    return data_token , createtime
+
+
+def split_data(data , createtime , half_year_time ):
+    '''仅对 意向车型为 领界；二级渠道为专题 EV专题的数据进行预测、打标签'''
+
+    data['导入时间'] = data.apply(lambda x : str(x['导入时间']) , axis = 1)
+    data['CreateTime'] = data.apply(lambda x : str(x['CreateTime']) , axis = 1)
+    data['IsDelete'] = data.apply(lambda x : int(x['IsDelete']) , axis = 1)
+    
+    halfyear_data = data.loc[data['导入时间'] >= half_year_time]
+    workdata = data.loc[(data['CreateTime'] > createtime) & (data['二级渠道'].isin(['专题','EV专题','专题活动'])) & (data['IsDelete'] == 0)]
+    
+    workdata_unique = workdata[['线索编号','客户电话号' , '经销商','城市_map','来源渠道_map','省份_map','线索类型_map']]
+    workdata_unique.drop_duplicates(subset = ['客户电话号'] , inplace = True)
+    
+    return  workdata_unique , halfyear_data
+
+
+def base_process(data):
+    import pandas as pd
+    
+    
+    data = data.merge(forddealer , left_on = '经销商名称' , right_on = '经销商',how = 'left') # 模型特征数据仅从售卖领界的经销商数据中建立
+    data.drop(columns = [ '经销商名称','经销商'] , inplace = True)
+    data = data.loc[pd.notnull(data['DealerCode'])]
+    print('已经删除非领界的经销商')
+    
+    drop_col_template = ['PhoneNumberMD5','Id','UpdateTime' ]
+    data.drop(columns = drop_col_template , inplace = True)
+    
+    data.rename(columns = db_col_dict , inplace = True)
+    data.rename(columns = db_col_dict , inplace = True)
+    data['城市'] = city_province_code(data, '城市', r'D:\领界\support')
+
+    
+    data.drop(columns = ['省份'] , inplace =True)
+    data = province_map(data,r'')
+
+    print('省份中空缺值')
+    print(sum(data['省份'] == ''))
+    print(sum(pd.isnull(data['省份'])))
+    if sum(pd.isnull(data['省份'])) != 0 :
+        print(data.loc[pd.isnull(data['省份']),'二级渠道'].value_counts())
+
+    return data
+
+def _logger_myself(info):
+    import logging
+    import datetime as dt
+    import os
+    
+    logger = logging.getLogger(__name__)
+    logger.setLevel(logging.DEBUG)
+    logname = str(dt.datetime.now())[:10] + '.log'
+    log_path = os.path.join(r'D:\领界\result',logname)
+    fh = logging.FileHandler(log_path)
+    fh.setLevel(logging.DEBUG)
+    logger.addHandler(fh)
+    
+    logger.info("Latest CreateTime:"+info)
+    
+    pass
+
+def dealerdata_from_database(sqlcode):
+    import pyodbc
+    import numpy as np
+    import pandas as pd
+
+    server = ""    
+    user = ""
+    password = ""
+    
+    driver = ' '
+    database = ''
+    driver = ''
+     
+    conn = pyodbc.connect(driver=driver, server=server, user=user, password=password, database=database)
+    cursor =conn.cursor() 
+    
+    cursor.execute(sqlcode)
+    row =cursor.fetchall()
+    conn.close()
+       
+    data_token = pd.DataFrame(np.zeros((len(row),1)) , columns =  ['clueCode'])
+    
+    for i in columns_need:
+        data_token[i] = ''
+    
+    for row_index ,row in enumerate(row) : 
+        for value_index , value in enumerate(row):
+            data_token.iloc[row_index,value_index] = value
+    return data_token
+
+
+def dealer_performance(dealer_p ):
+    '''经销商表现情况，通过已建档数据与经销商数据相merge，并计算每个经销商的建档比率，随后处理为1-3的顺序变量'''
+
+    dealer_cust_size = pd.DataFrame(dealer_p.groupby(['经销商']).size())
+    dealer_cust_perforamce = pd.DataFrame(dealer_p.loc[pd.notnull(dealer_p['Archived'])].groupby(['经销商']).size())
+
+    dealer_cust_size.rename(columns = {0:'经销商获客数量'} ,inplace = True)
+    dealer_cust_perforamce.rename(columns = {0:'潜客数量（含有建档等级）'} ,inplace = True)
+    
+    dealer_list = dealer_p[['经销商']]
+    dealer_list.drop_duplicates(subset = ['经销商'] , inplace = True)
+    dealer_list = dealer_list.merge(dealer_cust_size  , left_on = '经销商',right_on = '经销商',how = 'left')
+    dealer_list = dealer_list.merge(dealer_cust_perforamce  , left_on = '经销商',right_on = '经销商', how = 'left')
+    
+    dealer_list['潜客率'] = dealer_list['潜客数量（含有建档等级）']/dealer_list['经销商获客数量']
+    
+    dealer_list['经销商表现等级'] = dealer_list.apply(lambda x : dealer_proferemce_level(x['潜客率']), axis = 1)
+    
+    dealer_list = dealer_list[['经销商','经销商表现等级']]
+    dealer_list.fillna(1 , inplace = True)
+    
+    return dealer_list
+
+def city_province_code(data, city_col_name, support_path):
+    '''城市名称清洗'''
+    import pandas as pd
+    import os
+
+    city_path = os.path.join(support_path , 'ford说明(20200301).xlsx' )
+    city = pd.read_excel(city_path, sheetname='城市清洗')
+
+    city_dict = {}
+    for i in range(0, city.shape[0]):
+      city_dict[city.iloc[i, :]['城市&区域']] = city.iloc[i, :]['城市']
+
+    def dict_apply(data, dict):
+      try:
+            value = dict[data]
+      except KeyError:
+            value = ''
+
+      return value
+
+    data[city_col_name].replace(
+        {'市': '', '省': '', '区': '', '县': ''}, inplace=True)
+    name_template = ''.join(['city_tem'])
+    data[name_template] = data.apply(
+        lambda x: str(x[city_col_name])[0:2], axis=1)
+
+    city_keep_name = "".join(['city_clean'])
+    data[city_keep_name] = data.apply(
+        lambda x: dict_apply(x[name_template], city_dict), axis=1)
+
+    data.drop(columns = [name_template] , inplace = True)
+    return data[city_keep_name]
+
+def province_map(data,support_path):
+    '''省份名称清洗 ， 该函数没用上'''
+    import pandas as pd
+    import os
+    
+    pro_path = os.path.join(support_path , 'ford说明(20200301).xlsx' )
+    pro = pd.read_excel(pro_path, sheetname='城市到省份')
+    
+    data = data.merge(pro , left_on = 'city_clean', right_on = '城市模板', how = 'left')
+    
+    return data
+
+
+def city_fillna(data):
+    '''利用经销商信息填充城市的空缺，该函数没用上'''
+    data_city_na = data.loc[data['城市'] == '']
+    data.loc[data['城市'] == '','城市']  = city_province_code(data_city_na, '经销商', 
+            r'E:\坚果云czr\我的坚果云\template\领界')
+    return data
+
+def var_map(data , col_map_list):
+    '''字段名称进行映射'''
+
+    import pandas as pd
+    
+    for col_map in col_map_list:
+        col_map_file = pd.read_excel(r'D:\领界\support\ford说明(20200301).xlsx' , 
+            sheetname = col_map)
+        col_map_dict = {}
+        for i in range(0, col_map_file.shape[0]):
+            col_map_dict[col_map_file.iloc[i, :]['kind']] = col_map_file.iloc[i, :]['map']
+
+        def dict_apply(data, dict):
+            try:
+                value = dict[data]
+            except KeyError:
+                value = ''
+            return value
+        
+        new_name = ''.join([col_map , '_map'])
+        data[new_name] = data.apply(lambda x :\
+            dict_apply(x[col_map] , col_map_dict) , axis = 1) # 单纯的映射是元素级别的，可以使用map直接进行
+    
+    data.loc[data['城市_map'] == '','城市_map'] = 6  # 这里直接将缺失城市数据补充为6妥当吗？没有用经销商信息填充吗？
+        
+    return data
+
+def get_more_var(data_test ):
+    
+    '''
+    总共的注册次数：单个mobile的出现次数
+    意向品牌的个数：单个mobile中，意向品牌 不为空的个数
+    来源渠道的个数：单个mobile中，来源渠道 不为空的个数
+    二级渠道的个数：单个mobile中，二级渠道 不为空的个数
+    经销商代码的个数：单个mobile中，经销商代码 不为空的个数
+    过去注册领界的次数：单个mobile中，意向品牌为领界的个数-1
+    过去注册非领界的次数（小于最后一个领界）：单个mobile中，根据时间降序排列，计算最后一个 领界 之前的出现次数
+    '''
+    
+    
+    data_number = data_test[['客户电话号']].copy(deep = True)
+    data_number.drop_duplicates(subset = ['客户电话号'] ,inplace = True)
+    
+    reg_all_count = pd.DataFrame(data_test.groupby('客户电话号').size())
+    brand_number = pd.DataFrame(data_test.groupby('客户电话号').apply(lambda x : value_count(x , '意向品牌')))
+    origin_number = pd.DataFrame(data_test.groupby('客户电话号').apply(lambda x: value_count(x, '来源渠道')))
+    suborigin_number = pd.DataFrame(data_test.groupby('客户电话号').apply(lambda x: value_count(x, '二级渠道')))
+    dealer_number = pd.DataFrame(data_test.groupby('客户电话号').apply(lambda x: value_count(x, '经销商')))
+    past_reg_num = pd.DataFrame(data_test.groupby('客户电话号').apply(lambda x: reg_lingjie_count(x)))
+    past_reg_nolingjie_num = pd.DataFrame(data_test.groupby('客户电话号').apply(lambda x: reg_other_count(x)))
+    
+    reg_all_count.rename(columns = {0 : '总共的注册次数'} , inplace = True)
+    brand_number.rename(columns = {0 : '意向品牌的个数'} , inplace = True)
+    origin_number.rename(columns = {0 : '来源渠道的个数'} , inplace = True)
+    suborigin_number.rename(columns = {0 : '二级渠道的个数'} , inplace = True)
+    dealer_number.rename(columns = {0 : '经销商代码的个数'} , inplace = True)
+    past_reg_num.rename(columns = {0 : '过去注册领界的次数'} , inplace = True)
+    past_reg_nolingjie_num.rename(columns = {0 : '过去注册非领界的次数（小于最后一个领界）'} , inplace = True)
+    
+    data_number = data_number.merge(reg_all_count , left_on = '客户电话号' , right_on = '客户电话号', how = 'inner')
+    data_number = data_number.merge(brand_number , left_on = '客户电话号' , right_on = '客户电话号', how = 'inner')
+    data_number = data_number.merge(
+        origin_number, left_on='客户电话号', right_on='客户电话号', how='inner')
+    data_number = data_number.merge(
+        suborigin_number, left_on='客户电话号', right_on='客户电话号', how='inner')
+    data_number = data_number.merge(
+        dealer_number, left_on='客户电话号', right_on='客户电话号', how='inner')
+    data_number = data_number.merge(
+        past_reg_num, left_on='客户电话号', right_on='客户电话号', how='inner')
+    data_number = data_number.merge(
+        past_reg_nolingjie_num, left_on='客户电话号', right_on='客户电话号', how='inner')
+    
+    # 盖帽变量
+    number_change_col = ['过去注册非领界的次数（小于最后一个领界）', '二级渠道的个数',
+                     '意向品牌的个数', '经销商代码的个数', '过去注册领界的次数', '来源渠道的个数', '总共的注册次数']
+    
+    for i in number_change_col:
+        data_number[i] = data_number.apply(lambda x : number_change(x , i) , axis = 1)
+    
+    
+    return data_number
+
+
+def value_count(data , col):
+    '''
+    留资次数，如客户在X个经销商分别留资
+    '''
+
+    value = data[col].unique().tolist()
+    value = [i for i in value if i != '']
+    print(data['客户电话号'])
+    
+    print(value)
+    print('----------')
+    return len(value)
+
+
+def reg_lingjie_count(data  ):
+    '''
+    过去留资领界的次数
+    '''
+    
+    lingjie = data.loc[data['意向品牌'] == '领界', :].shape[0] - 1
+    return lingjie
+
+
+def reg_other_count(data ):
+    '''
+    在留资领界之前，留资的次数
+    '''
+    import datetime
+
+    data['time_new'] = data.apply(lambda x: str(x['导入时间'])[0:10], axis=1)
+    data['time_new'] = data.apply(
+        lambda x: datetime.datetime.strptime(x['time_new'], '%Y-%m-%d'), axis=1)
+
+    data_need = data.loc[:, ['意向品牌', 'time_new']].sort_values(by='time_new', ascending=True)
+    try:
+        token = data_need.loc[data_need['意向品牌'] == '领界', 'time_new'].iloc[-1]
+    
+        get = data_need.loc[(data_need['time_new'] < token) &
+                            (data_need['意向品牌'] != '领界'), :].shape[0]
+    except IndexError:
+        print('该客户在注册领界之前没有流过资:')
+        get = 0
+    return get
+
+
+
+def date_time_filter(data , date ):
+
+    data['time_new'] = data.apply(lambda x: str(x['导入时间'])[0:10], axis=1)
+    data = data.loc[data['time_new']  >  date]
+    return data
+
+
+def number_change(data , col  ):
+    '''给变量盖帽，盖帽设定方式见说明'''
+    
+    if col in( '过去非领界注册次数（小于最后一个领界）','二级渠道个数',\
+                '意向品牌个数','经销商代码个数','过去注册领界次数'):
+        if data[col] >=1:
+            return 1
+        else:
+            return data[col]
+    else:
+        if data[col] >=2:
+            return 2
+        else:
+            return data[col]
+
+def dealer_proferemce_level(x):
+    '''经销商建档比例分箱'''
+    
+    if x >= 0.0 and x <0.04:
+        return 1
+    if x >=0.04 and x <0.11:
+        return 2
+    if x >=0.11:
+        return 3
+
+if __name__ == '__main__':
+
+import pandas as pd
+import os
+import numpy as np
+import pickle
+import datetime as dt
+
+os.chdir(r'')
+customer_sql = "sql" 
+data_newsplit,createtime = customerdata_from_database(customer_sql)
+
+data_newsplit.rename(columns = db_col_dict,inplace = True)
+
+with open('XXX.pickle', 'rb') as f:
+    data_allold = pickle.load(f)
+
+data_allold.rename(columns = db_col_dict,inplace = True)
+
+data = mypickle(pd.concat([data_allold , data_newsplit] , axis = 0)) # 储存历史数据
+
+data_test = var_map(base_process(data) , ['城市' ,'来源渠道','线索类型','省份']) # 对分类变量进行处理
+
+workdata , halfyear_data = ford_tool.split_data(data_test ,createtime = '' , half_year_time = '')
+more_var = ford_tool.get_more_var(halfyear_data) # 对连续变量进行处理
+
+workdata = workdata.merge(more_var, left_on = '客户电话号' , right_on = '客户电话号', how = 'left')
+
+### 经销商情况的情况
+dealer_sql = ''' sql '''
+  
+# 获取建档信息
+cluecode_archived = dealerdata_from_database(dealer_sql)
+
+halfyear_dealer = halfyear_data[['线索编号','经销商']].copy(deep = True)
+
+halfyear_dealer['线索编号'] = halfyear_dealer['线索编号'].astype('str')
+dealer_p = halfyear_dealer.merge(cluecode_archived  ,\
+            left_on = '线索编号' , right_on = 'clueCode' , how = 'left') 
+
+dealer_p_new = ford_tool.dealer_performance(dealer_p )
+dealer_p_new.rename(columns = {'经销商':'经销商号码'},inplace = True)
+
+workdata = workdata.merge(dealer_p_new ,left_on = '经销商' ,right_on = '经销商号码',how = 'left')
+dealer_p_new.to_excel(r'专题活动0317dealer.xlsx')
+
+workdata.drop(columns = [ '客户电话号','经销商号码'] , inplace = True)
+
+
+    
+os.chdir(r'D:\领界\finalresult')
+workdata.to_excel(r'mlrawdata0319.xlsx',index = False)
+
+
+
+
