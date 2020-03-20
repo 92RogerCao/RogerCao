@@ -1,0 +1,522 @@
+
+test_list = ['TEST' , 'test','测试' , 'Test','tEST' , 'TEst','TESt','test01'] 
+dtype_stand = {'发送外呼日期':'datetime64[ns]','活动ID':str}
+dtype_stand_audit = {'发送外呼日期':'datetime64[ns]' , 'Audit活动ID':str}
+dtype_stand_lla = {'发送LLA外呼日期':'datetime64[ns]' }
+rename_audit = {'发送日期':'发送外呼日期'}
+rename_lla = {'发送LLA外呼日期':'发送外呼日期'}
+lla_brand = {'捷豹':'JA','路虎':'LR'}
+
+channel_dict = {'发送外呼日期':'Upload date','活动ID' :'Activity_ID','活动名称':'Activity_Name','潜客来源':'Channel',
+    '活动':'Event','捷豹官网':'JDX','路虎官网':'LRDX','数字渠道':'Digital','Brand App':'Brand App','CRM':'CRM','wtb潜客来源':'Digital',\
+        'lla潜客来源':'CRM','Audit 1 week':'' , 'Audit 1 month':''}
+
+def RawData_Process(allfilelist):
+    '''为obsummary刷上原始数据'''
+    import os
+    import win32com.client
+    import datetime as dt
+    import shutil
+    import datetime
+    import time 
+    
+    kind_path = ''
+    origin_path = os.path.join(kind_path)
+    keepold_path = ''
+    shutil.copy(origin_path, keepold_path)
+    
+    print('已将OBsummary备份')                        
+        
+    xlApp = win32com.client.Dispatch('Excel.Application') 
+    xlApp.ScreenUpdating = False
+    xlApp.Visible = False
+    xlApp.DisplayAlerts = False
+    xlBook = xlApp.Workbooks.Open(kind_path)
+    summary= xlBook.Worksheets("2020")
+
+    for fileprocess in allfilelist:
+        daily_raw = fileprocess[0] ; more_type = fileprocess[1]
+        print('processing',more_type)
+
+        daily_raw['潜客来源_apply'] = daily_raw.apply(lambda x : _dict_apply(x['潜客来源'], \
+             channel_dict) , axis = 1)
+    
+        daily_raw['发送外呼日期_apply'] = daily_raw["发送外呼日期"].apply(lambda x: _get_str_date(x))
+        
+        daily_group = daily_raw.groupby(['发送外呼日期_apply' , '活动ID', '活动名称','潜客来源_apply']).size()
+        daily_group = daily_group.reset_index(level = [0,1,2,3]) ; daily_group.rename(columns = {0:'收到数量'}, inplace = True)
+        daily_group['timecamp_key'] = daily_group['发送外呼日期_apply'] + daily_group['活动ID'] + \
+                        daily_group['潜客来源_apply']
+        
+        daily_group_testinfo = daily_raw.groupby(['发送外呼日期_apply' , '活动ID', '活动名称','潜客来源_apply']).apply(lambda x :\
+                                                _get_test_info(x['姓名'],test_list))
+        daily_group_testinfo = daily_group_testinfo.reset_index(level = [0,1,2,3])
+        daily_group_testinfo.rename(columns = {0:'无需外呼数量(测试数据）'}, inplace = True)
+        daily_group_testinfo['timecamp_key'] = daily_group_testinfo['发送外呼日期_apply'] + daily_group_testinfo['活动ID'] + \
+                            daily_group_testinfo['潜客来源_apply']
+        daily_group_testinfo = daily_group_testinfo[['timecamp_key' , '无需外呼数量(测试数据）']]
+        
+    
+        _get_test_black_dup_info(daily_group_testinfo , 'test')
+            
+        daily_group = daily_group.merge(daily_group_testinfo , left_on = 'timecamp_key' , \
+                                        right_on = 'timecamp_key',how = 'inner')
+        
+        daily_group['sort_val'] = daily_group.apply(lambda x : _get_subsort_val(x[['活动ID','活动名称']] , more_type) , axis = 1)
+        
+        
+        daily_group_kind = daily_group
+        daily_group_kind.sort_values(['发送外呼日期_apply', 'sort_val'], ascending = False , inplace = True)
+
+        insert_row = daily_group_kind.shape[0] 
+        if insert_row == 0:
+            pass
+        else:
+            excel_range = "A3:A{0}".format(insert_row+2)
+            rangeObj = summary.Range(excel_range) 
+            rangeObj.EntireRow.Insert() 
+        
+            for row_num in range(daily_group_kind.shape[0]):
+                
+                print(str(daily_group_kind.iloc[row_num,:]['活动ID']))
+                
+                summary.Cells(row_num+3 , 2).Value = str(daily_group_kind.iloc[row_num,:]['sort_val'])
+                summary.Cells(row_num+3 , 3).Value = 'LMS'
+                summary.Cells(row_num+3 , 4).Value = more_type
+                
+                summary.Cells(row_num+3 , 5).Value = str(daily_group_kind['发送外呼日期_apply'].tolist()[row_num])[0:10]
+                summary.Cells(row_num+3 , 6).Value = str(daily_group_kind['发送外呼日期_apply'].tolist()[row_num])[0:7]  
+                summary.Cells(row_num+3 , 7).Value = \ 
+                        str(int(datetime.datetime.strptime(daily_group_kind['发送外呼日期_apply'].tolist()[0],"%Y-%m-%d").strftime('%W'))+1)
+
+                summary.Cells(row_num+3 ,9).Value = str(daily_group_kind.iloc[row_num,:]['活动ID'])
+                summary.Cells(row_num+3 ,10).Value = str(daily_group_kind.iloc[row_num,:]['活动名称'])
+                summary.Cells(row_num+3 ,11).Value = str(daily_group_kind.iloc[row_num,:]['潜客来源_apply'])
+                summary.Cells(row_num+3 ,12).Value = str(daily_group_kind.iloc[row_num,:]['收到数量'])
+                summary.Cells(row_num+3 ,13).Value = str(daily_group_kind.iloc[row_num,:]['无需外呼数量(测试数据）']) 
+
+                summary.Cells(row_num+3 ,16).Value = str('{0}条测试数据'.format(str(daily_group_kind.iloc[row_num,:]['无需外呼数量(测试数据）'])))
+                summary.Cells(row_num+3 ,17).Value = str(daily_group_kind.iloc[row_num,:]['收到数量'] - daily_group_kind.iloc[row_num,:]['无需外呼数量(测试数据）']) 
+                summary.Cells(row_num+3 ,18).Value = str(0) 
+                summary.Cells(row_num+3 ,19).Value = str(daily_group_kind.iloc[row_num,:]['收到数量']) 
+                summary.Range(summary.Cells(row_num+3 , 1) , summary.Cells(row_num+3 , 29)).Interior.ColorIndex = 6
+
+    xlApp.ScreenUpdating = True
+    xlApp.Visible = True
+    xlApp.DisplayAlerts = True
+    xlBook.Save()
+    xlBook.Close()
+    xlApp.Quit() 
+    time.sleep(1)
+    
+    newkind_name = "".join(['CallCenter OB summary ' ,str(dt.date.today()).replace("-",''),'.xlsx'])
+    origin_path = os.path.join(kind_path)
+    newkind_path = os.path.join('')
+    shutil.copy(origin_path, newkind_path)
+    os.remove(origin_path)
+    print('已经在summary上刷上了新的rawdata数据！')
+
+
+def PostBackData_Process(data ):
+    '''
+    为obsummary刷上回传数据
+    
+    无需外呼 = (CSR姓名 = 黑名单) + (CSR姓名 = 重复数据)
+    需要外呼的数量 = 需要外呼的数量 - 无需外呼
+    已上传 = 累计值，backdata中的数据需要回传，根据发送外呼时间定位 加上对应日期的已回传数据
+    未上传 = 收到数量 - 已上传
+    '''
+    import os
+    import pandas as pd
+    import win32com.client
+    import datetime as dt
+    import time
+    
+    xlApp = win32com.client.Dispatch('Excel.Application') # 打开Excel
+    xlApp.ScreenUpdating = False
+    xlApp.Visible = False
+    xlApp.DisplayAlerts = False 
+    data.fillna(0 , inplace = True)
+    
+    dtype_standrad = {'Upload date' : 'object','Activity_ID':'str'}
+
+    
+    summaryfile_path = os.path.join(r'C:\Users\admin\Desktop\nutring' , \
+                                    "".join(['CallCenter OB summary ' ,str(dt.date.today()).replace("-",''),'.xlsx']))
+    summaryfile = pd.read_excel(summaryfile_path, sheetname = '2020' , \
+                                skiprows = 1  , dtype = dtype_standrad)
+
+    summaryfile['Channel'].fillna('' , inplace = True)
+    xlBook = xlApp.Workbooks.Open(summaryfile_path)
+    JA_summary = xlBook.Worksheets("2020")
+    
+    summaryfile['Upload date'] = summaryfile['Upload date'].apply(lambda x: _get_str_date(x))
+    summaryfile['Upload date'] = summaryfile.apply(lambda x : x['Upload date'][0:10] , axis = 1)
+    summaryfile['timecamp_key'] = summaryfile['Upload date'] + summaryfile['Activity_ID'] + summaryfile['Channel']
+    summaryfile_split = summaryfile[['timecamp_key' , '收到数量','无需外呼数量','CSR姓名=黑名单','CSR姓名=重复数据',\
+                                   '需要外呼数量','已上传','未上传']]
+    
+    summaryfileneed = summaryfile_split.loc[\
+                    summaryfile_split['timecamp_key'].isin(data['timecamp_key'].values.tolist()),:].copy(deep = True)
+    summaryfileneed.fillna(0 , inplace = True)
+
+    summaryfileneed[['收到数量', '无需外呼数量', 'CSR姓名=黑名单', 'CSR姓名=重复数据', '需要外呼数量', \
+                '已上传','未上传']].fillna(0 , inplace =True)
+    key_all = summaryfileneed['timecamp_key'].values.tolist()
+    summaryfileneed[['收到数量']].fillna(0,inplace = True)
+    for key in key_all:
+        
+        summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , 'CSR姓名=黑名单'] += \
+                            data.loc[data['timecamp_key'] == key ,'黑名单数据'].values[0]
+        summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , 'CSR姓名=重复数据'] += \
+                            data.loc[data['timecamp_key'] == key ,'重复数据'].values[0]
+        summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , '无需外呼数量'] += \
+                summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , 'CSR姓名=黑名单'].values[0] + \
+                summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , 'CSR姓名=重复数据'].values[0]
+        
+        summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , '需要外呼数量'] =\
+            summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , '收到数量'].values[0] - summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , '无需外呼数量'].values[0]
+    
+        summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , '已上传'] += \
+                        data.loc[data['timecamp_key'] == key ,'新增需回传'].values[0]
+        summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , '未上传'] = \
+                        summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , '收到数量'] - \
+                        summaryfileneed.loc[summaryfileneed['timecamp_key'] == key , '已上传'] 
+
+    
+    summary_excel_dict = {'无需外呼数量':  13,'CSR姓名=黑名单':  14,
+                        'CSR姓名=重复数据':  15,'需要外呼数量':  17,
+                        '已上传':  18,'未上传':  19}
+
+    for df_row , row_num_index in enumerate(summaryfileneed.index.tolist()):
+
+        JA_summary.Cells(row_num_index + 3 , summary_excel_dict['无需外呼数量']).Value  =  \
+                        str(int(summaryfileneed.iloc[df_row,:]['无需外呼数量']))
+        JA_summary.Cells(row_num_index + 3 , summary_excel_dict['CSR姓名=黑名单']).Value  =  \
+                        str(int(summaryfileneed.iloc[df_row,:]['CSR姓名=黑名单']))
+        JA_summary.Cells(row_num_index + 3 , summary_excel_dict['CSR姓名=重复数据']).Value  =  \
+                        str(int(summaryfileneed.iloc[df_row,:]['CSR姓名=重复数据']))
+        JA_summary.Cells(row_num_index + 3 , summary_excel_dict['需要外呼数量']).Value  =  \
+                        str(int(summaryfileneed.iloc[df_row,:]['需要外呼数量']))
+        JA_summary.Cells(row_num_index + 3 , summary_excel_dict['已上传']).Value  =  \
+                        str(int(summaryfileneed.iloc[df_row,:]['已上传']))
+        JA_summary.Cells(row_num_index + 3 , summary_excel_dict['未上传']).Value  =  \
+                        str(int(summaryfileneed.iloc[df_row,:]['未上传']))
+    
+    xlApp.ScreenUpdating = True
+    xlApp.Visible = True
+    xlApp.DisplayAlerts = True
+    xlBook.Save()
+    xlBook.Close()
+    xlApp.Quit()  
+    time.sleep(3)
+
+
+
+
+def _dict_apply(data , dict):
+    try:
+        return dict[data]
+    except KeyError:
+        return '未匹配到的新渠道！'
+
+
+def _get_str_date(x):
+    try:
+        return x.strftime('%Y-%m-%d')
+    except AttributeError:
+        return x.replace('/','-')
+
+
+def _get_test_info(x , test_list):
+    
+    count = 0
+    for i in x:
+        if i in test_list:
+            count +=1
+    return count
+
+def _get_test_black_dup_info(data , kind):
+    
+    
+    if len(data['timecamp_key'].unique().tolist()) !=0:
+        if kind == 'test':
+            for i in data['timecamp_key'].unique().tolist():
+                camp_test = data.loc[data['timecamp_key'] == i]['无需外呼数量(测试数据）']
+                if int(camp_test) >0:
+                    print('活动',i,'---','有测试数据',str(int(camp_test)),'条')
+        elif kind == 'dup':
+            for i in data['timecamp_key'].unique().tolist():
+                
+                camp_test = data.loc[data['timecamp_key'] == i]['重复数据']
+                if int(camp_test) >0:
+                    print('活动',i,'---','重复数据',str(int(camp_test)),'条')
+        elif kind == 'black':
+            for i in data['timecamp_key'].unique().tolist():
+                camp_test = data.loc[data['timecamp_key'] == i]['黑名单数据']
+                if int(camp_test) >0:
+                    print('活动',i,'---','黑名单数据',str(int(camp_test)),'条')  
+
+def _lla_brand_apply(x):
+    
+    try:
+        brand = lla_brand[x]
+        return brand
+    except:
+        print('lla品牌有空值')
+        return ''
+
+def _lla_actIDName_apply(x):
+    
+    if x == 'LR':
+        return 'LR-LLA'
+    if x == 'JA':
+        return 'JA-LLA'  
+    
+def _wtb_capmaign(x):
+    
+    if x.startswith('JA'):
+        return 'JA-WTB'
+    elif x.startswith('JG'):
+        return 'JA-WTB'
+    else:
+        return 'LR-WTB'
+
+
+def _get_subsort_val(x_df , more_type):
+    
+    if more_type == 'WTB':
+        if x_df['活动ID'].find('JA') or x_df['活动ID'].find('JG') :
+            return 'LR'
+        return 'JA'
+            
+    else:
+        if x_df['活动名称'].find('JA') or x_df['活动名称'].find('JG') :
+            return 'LR'
+        return 'JA'
+
+def backdata_summary_group(data_path):
+    
+    import pandas as pd
+    
+    data_raw = pd.read_excel(data_path ,\
+            dtype = {'潜客ID':'str','发送外呼日期':'datetime64[ns]','活动ID':'str'}) # 对于['发送外呼日期'] ， 是否需要在读取的时候直接指定为str格式
+    datagroup_raw = data_raw[['潜客ID','活动ID','活动名称','潜客来源','发送外呼日期','CSR姓名']].copy(deep = True)     
+    
+    def CSR_info(x , info):
+        return sum(x['CSR姓名'] == info)
+    datagroup_raw['潜客来源_apply'] = datagroup_raw.apply(lambda x : _dict_apply(x['潜客来源'], channel_dict) , axis = 1)
+    datagroup_raw['发送外呼日期_apply'] = datagroup_raw["发送外呼日期"].apply(lambda x: _get_str_date(x))
+
+    return datagroup_raw
+
+
+def backdata_summary_weekmonth(data_path):
+    import pandas as pd
+    
+    data_raw = pd.read_excel(data_path ,dtype = {'线索ID':'str','发送外呼日期':'datetime64[ns]','活动ID':'str'}) # 对于['发送外呼日期'] ， 是否需要在读取的时候直接指定为str格式
+
+    def modify_oneweek_onemonth(data):
+        column_newname = {'线索ID':'潜客ID'}
+        data.rename(columns = column_newname , inplace =True)
+        
+        try:
+            data['潜客来源'] = data['1 Week Audit 活动ID'].tolist()
+            
+            data['1 Week Audit 活动ID'] = data.apply(lambda x: _add_kind(x['1 Week Audit 活动ID'] , x['感兴趣品牌']) , axis = 1)
+            data['活动ID'] = data['1 Week Audit 活动ID']
+            data['活动名称'] = data['1 Week Audit 活动ID']
+        except:
+            data['潜客来源'] = data['1 Month Audit 活动ID'].tolist()
+            
+            data['1 Month Audit 活动ID'] = data.apply(lambda x: _add_kind(x['1 Month Audit 活动ID'] ,x['感兴趣品牌']) , axis = 1)
+            data['活动ID'] = data['1 Month Audit 活动ID']
+            data['活动名称'] = data['1 Month Audit 活动ID']
+
+        return data
+
+    data_raw = modify_oneweek_onemonth(data_raw)
+
+
+    datagroup_raw = data_raw[['潜客ID','活动ID','活动名称','潜客来源','发送外呼日期','CSR姓名']].copy(deep = True)    
+    datagroup_raw['发送外呼日期_apply'] = datagroup_raw["发送外呼日期"].apply(lambda x: _get_str_date(x))
+    
+    return datagroup_raw
+
+def backdata_summary_LLA(data_path):
+
+    import pandas as pd
+    
+    data_raw = pd.read_excel(data_path ,dtype = {'线索ID':'str','发送外呼日期':'datetime64[ns]','活动ID':'str'}) # 对于['发送外呼日期'] ， 是否需要在读取的时候直接指定为str格式
+
+    def modify_LLA(data):
+        data['潜客来源_apply'] = 'CRM'
+        
+        data['活动ID'] = data.apply(lambda x: _add_kind( x['感兴趣品牌']) , axis = 1)
+        data['活动名称'] = data['活动ID']
+
+        return data
+
+    data_raw = modify_LLA(data_raw)
+    
+    datagroup_raw = data_raw[['线索ID','活动ID','活动名称','潜客来源_apply','发送LLA外呼日期','LLA CSR姓名']].copy(deep = True)
+    datagroup_raw.rename(columns = {'线索ID':'潜客ID' , 'LLA CSR姓名':'CSR姓名' , '发送LLA外呼日期':'发送外呼日期'} , inplace =True)
+    datagroup_raw['发送外呼日期_apply'] = datagroup_raw["发送外呼日期"].apply(lambda x: _get_str_date(x))
+    
+    return datagroup_raw
+
+
+def backdata_summary_WTB(data_path):
+
+    import pandas as pd
+    
+    data_raw = pd.read_excel(data_path ,dtype = {'MemberID':'str','发送外呼日期':'datetime64[ns]','活动ID':'str'}) # 对于['发送外呼日期'] ， 是否需要在读取的时候直接指定为str格式
+
+    def modify_WTB(data):
+        data['潜客来源_apply'] = 'Digital'
+        data['活动名称'] = data['活动ID']
+        data['活动ID'] = data.apply(lambda x: _add_kind( x['品牌']) , axis = 1)
+
+        return data
+
+    data_raw = modify_WTB(data_raw)
+    
+    datagroup_raw = data_raw[['MemberID','活动ID','活动名称','潜客来源_apply','发送外呼日期','CSR姓名']].copy(deep = True)
+    datagroup_raw.rename(columns = {'MemberID':'潜客ID'  } , inplace =True)
+    datagroup_raw['发送外呼日期_apply'] = datagroup_raw["发送外呼日期"].apply(lambda x: _get_str_date(x))
+
+    #datagroup_raw = data_raw[['潜客ID','活动ID','活动名称','潜客来源_apply','发送外呼日期','CSR姓名']].copy(deep = True)     
+    
+    
+    
+    return datagroup_raw
+
+
+def groupbyfunc(datagroup_raw):
+    
+    import pandas as pd
+    
+    def CSR_info(x , info):
+        # 查询CSR姓名 为 '黑名单' 或者 '重复数据'的情况
+        return sum(x['CSR姓名'] == info)
+    
+    
+    groupCSR_one = pd.DataFrame(datagroup_raw.groupby(['发送外呼日期_apply','活动ID','潜客来源_apply']).apply(lambda x : CSR_info(x , '黑名单')) ,\
+                                columns = ['黑名单数据'])
+    groupCSR_two = pd.DataFrame(datagroup_raw.groupby(['发送外呼日期_apply','活动ID','潜客来源_apply']).apply(lambda x : CSR_info(x , '重复数据')) , \
+                                columns = ['重复数据'])
+    
+    groupCSR_one.reset_index(level = [0,1,2] , inplace = True) 
+    groupCSR_one['timecamp_key'] = groupCSR_one['发送外呼日期_apply'] + groupCSR_one['活动ID'] + groupCSR_one['潜客来源_apply']
+
+    
+    groupCSR_two.reset_index(level = [0,1,2] , inplace = True) 
+    groupCSR_two['timecamp_key'] = groupCSR_two['发送外呼日期_apply']  + groupCSR_two['活动ID'] + groupCSR_two['潜客来源_apply']
+    
+    groupCSR_one = groupCSR_one[['timecamp_key' , '黑名单数据']] ; groupCSR_two = groupCSR_two[['timecamp_key' , '重复数据']]
+    
+    groupSIZE = pd.DataFrame(datagroup_raw.groupby(['发送外呼日期_apply','活动ID' , '潜客来源_apply']).size() , columns = ['新增需回传'] )
+    groupSIZE.reset_index(level = [0,1,2] , inplace = True) 
+    groupSIZE['timecamp_key'] = groupSIZE['发送外呼日期_apply']+ groupSIZE['活动ID'] + groupSIZE['潜客来源_apply']
+    
+    groupinfo = groupSIZE.merge(groupCSR_one , on = 'timecamp_key')
+    groupinfo = groupinfo.merge(groupCSR_two , on = 'timecamp_key')
+    groupinfo['新增无需外呼数量'] = groupinfo['黑名单数据'] + groupinfo['重复数据']
+    print('已生成grouped数据，用于放入summary表中')
+    
+    return groupinfo
+
+
+    
+def modify_oneweek_onemonth(data ):
+    column_newname = {'线索ID':'潜客ID'}
+    data.rename(columns = column_newname , inplace =True)
+    
+    try:
+        data['潜客来源'] = data['1 Week Audit 活动ID'].tolist()
+        
+        data['1 Week Audit 活动ID'] = data.apply(lambda x: _add_kind(x['1 Week Audit 活动ID'] , x['感兴趣品牌']) , axis = 1)
+        data['活动ID'] = data['1 Week Audit 活动ID']
+        data['活动名称'] = data['1 Week Audit 活动ID']
+    except:
+        data['潜客来源'] = data['1 Month Audit 活动ID'].tolist()
+        
+        data['1 Month Audit 活动ID'] = data.apply(lambda x: _add_kind(x['1 Month Audit 活动ID'] ,x['感兴趣品牌']) , axis = 1)
+        data['活动ID'] = data['1 Month Audit 活动ID']
+        data['活动名称'] = data['1 Month Audit 活动ID']
+
+    return data
+
+def raw_lla_process(data):
+    
+    data.rename(columns = rename_lla , inplace = True)
+    
+    data['潜客来源'] = ['lla潜客来源']* data.shape[0]
+    data['brand_apply'] = data.apply(lambda x : _lla_brand_apply(x['感兴趣品牌']) , axis = 1)
+    
+    data['活动名称'] = data.apply(lambda x : _lla_actIDName_apply(x['brand_apply']) , axis = 1)
+    data['活动ID'] = data.apply(lambda x : _lla_actIDName_apply(x['brand_apply']) , axis = 1)
+    
+    return data
+                
+def raw_audit_process(data):
+    
+    data.rename(columns = rename_audit , inplace = True)
+    data['潜客来源'] = ['CRM'] * data.shape[0]
+    data['活动ID'] = data['Audit活动ID'].tolist()
+    return data
+
+def raw_wtb_process(data):
+
+    data['潜客来源'] = ['wtb潜客来源']* data.shape[0]
+    data['活动名称'] = data.apply(lambda x: _wtb_capmaign(x['活动ID']) , axis =1)
+    return data
+
+
+def _add_kind( kind_col):
+    if kind_col == '捷豹':
+        kind_col_use = 'JA'
+    elif kind_col == '路虎':
+        kind_col_use = 'LR'
+    else:
+        kind_col_use = 'none'
+    x_new = "-".join([kind_col_use , 'WTB' ])
+    return x_new
+
+if __name__ == '__main__':
+
+    import pandas as pd
+    import sys
+    sys.path.append(r'C:\Users\admin\Desktop\nutring') 
+    import jlr_dailytool
+    
+    
+    daily_raw_KMI = pd.read_excel('' )
+    daily_raw_wtb = pd.read_excel('')
+    daily_raw_lla = pd.read_excel('')
+    daily_raw_onemonth = pd.read_excel('')
+    daily_raw_oneweek = pd.read_excel('')
+    
+    daily_raw_oneweek = jlr_dailytool.modify_oneweek_onemonth(daily_raw_oneweek)
+    daily_raw_onemonth = jlr_dailytool.modify_oneweek_onemonth(daily_raw_onemonth)
+    
+    
+    processlist = [[daily_raw_KMI,'Leads Verification'],      
+                   [daily_raw_lla,'LLA'],\
+                   [daily_raw_wtb , 'WTB'],
+                   [daily_raw_oneweek , '1 week'],
+                   [daily_raw_onemonth , '1 month']]
+    
+    jlr_dailytool.RawData_Process(processlist)
+        
+    postback_kmi = jlr_dailytool.backdata_summary_group(r'')
+    postback_oneweek = jlr_dailytool.backdata_summary_weekmonth(r'')
+    postback_onemonth = jlr_dailytool.backdata_summary_weekmonth(r'')
+    
+    
+    for i in [postback_kmi , postback_oneweek , postback_onemonth]:
+        
+        jlr_dailytool.PostBackData_Process(i )
+
+
+
