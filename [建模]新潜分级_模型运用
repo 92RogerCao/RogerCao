@@ -1,0 +1,164 @@
+
+def model_perforamce_myself( x_va_test , y_va_test , y_va_test_identification,y_predict_proba):
+    import pandas as pd
+
+    '''
+    将结果打上 建档率 高，中，低三类标签
+    建档率：建档人数/总人数
+    提升率 lift值：真实建档/人数占比
+    '''
+
+    def perforamce_level(x):
+        
+        if x < 0.065:
+            return 'low'
+        elif x>=0.065 and x<0.11:
+            return 'mid'
+        elif x >=0.11:
+            return 'high'
+    
+    pd.set_option('display.max_columns', 50) 
+    
+    da_perf = pd.concat([x_va_test , y_va_test] , axis = 1)
+    da_perf = pd.concat([da_perf , y_va_test_identification[['identification_code']]] , axis = 1)
+    da_perf.reset_index(inplace = True)
+    y_proba_df = pd.DataFrame(y_predict_proba)
+    y_proba_df.rename(columns = {0:'建档概率'} , inplace = True)
+    
+    da_perf = pd.concat([da_perf , y_proba_df] , axis = 1)
+    
+    da_perf['level_predict'] = da_perf.apply(lambda x : perforamce_level(x['建档概率']) , axis = 1)
+    
+    group_predict = pd.DataFrame(da_perf.groupby('level_predict').mean()['建档概率'])
+    group_jiandang = pd.DataFrame(da_perf.groupby('level_predict').sum()['if_jiandang'])
+    group_size = pd.DataFrame(da_perf.groupby('level_predict').size())
+    group_size.rename(columns = {0 : '总数'} ,inplace = True)
+    
+    group_all = group_predict.merge(group_jiandang , left_on = 'level_predict' , right_on = 'level_predict' , how = 'inner')
+    group_all = group_all.merge(group_size , left_on = 'level_predict' , right_on = 'level_predict' , how = 'inner')
+
+    group_all['真实建档率'] = group_all['if_jiandang']/ group_all['总数']
+
+    
+    total_volumne = group_all['总数'].sum()
+    total_jiandang = group_all['if_jiandang'].sum()
+
+    group_all['人数占比'] = group_all['总数']/total_volumne
+    group_all['真实建档占比'] = group_all['if_jiandang']/total_jiandang
+    group_all['lift'] = group_all['真实建档占比'] / group_all['人数占比']
+
+    return group_all , da_perf
+
+rename_dict = {
+    '城市_map':'city', 
+    '省份_map':'province',
+    '省份':'province',
+    '来源渠道_map':'channel', 
+    '线索类型_map':'leads_kind', 
+    '经销商代码的个数':'dealer_num', 
+    '过去注册领界的次数':'past_lingjie_num', 
+    '过去注册非领界的次数（小于最后一个领界）':'past_notlingjie', 
+    '总共的注册次数':'all_brand',
+    '意向品牌的个数':'past_interest_brand', 
+    '来源渠道的个数':'past_channel_num', 
+    '二级渠道的个数':'past_suborigin_num', 
+    '经销商表现等级':'dealer_performance',
+    '历史已购品牌_map':'past_buy_brand', 
+    '历史已购车型_map':'past_buy_car', 
+    '是否建档_map':'if_jiandang', 
+    '是否成交_map':'if_deal', 
+    '建档等级_map':'jiandang_level',
+    '重复留资识别码':'identification_code'}
+
+def get_final(da_perf):
+    def perforamce_level(x):
+        if x < 0.050:
+            return 'C'
+        elif x>=0.050 and x<0.10: # 
+            return 'B'
+        elif x >=0.010:
+            return 'A'
+    
+    da_perf['level_predict'] = da_perf.apply(lambda x :\
+           perforamce_level(x['建档概率']) , axis = 1)
+    
+    return da_perf
+
+
+def value_chi(data,value_list,jiandang):
+    import pandas as pd
+    import numpy as np
+    from  scipy.stats import chi2_contingency
+
+    '''分类型自变量与分类型因变量之间的相关程度的检验 使用统计量卡方分布 进行列联分析
+      数据量超过四千之后，P值基本就没有用了，在做之前最好抽个样！直接使用每个变量都是显著的'''
+
+    len_value = len(value_list)
+    token = np.zeros([len_value , 4])
+    perforamce_all = pd.DataFrame(token , columns = ['value','chi_value','p_value',
+              'dof_value'])
+    perforamce_all.replace(0.0 , '' , inplace=  True)
+    perforamce_except = {}
+    
+    for  i , value in enumerate(value_list):
+            perforamce = pd.crosstab(index = data[value] ,\
+                    columns = data[jiandang] , values=data['identification_code'], aggfunc='count')
+            perforamce.fillna(0 , inplace = True)
+            # 衡量因果关系时，将自变量放在列，将因变量放在行中
+            perforamce_array = perforamce.values
+
+            chi , p , dof , expect = chi2_contingency(perforamce) # 输入列联表
+
+            perforamce_all.iloc[i,:]['value'] = value
+            perforamce_all.iloc[i,:]['chi_value'] = chi
+            perforamce_all.iloc[i,:]['p_value'] = '小于0.01' if p <0.05 else '大于0.01'
+            perforamce_all.iloc[i,:]['dof_value'] = dof
+            #perforamce_all.iloc[i,:]['except'] = expect
+            perforamce_except[value] = expect
+
+            
+       
+    return perforamce_all  , perforamce_except
+
+
+if __name__ == '__main__':
+
+    import pandas as pd 
+    import numpy as np
+    import os
+    import datetime as dt
+    from sklearn.externals import joblib
+    
+    data_all = pd.read_excel(r'')
+    
+    data_all.rename(columns = rename_dict , inplace = True)
+    data_keep = data_all.copy(deep = True)
+    
+    x_value = ['dealer_performance', 'city', 'channel', 'leads_kind', 'province',
+           'dealer_num', 'past_lingjie_num', 'past_notlingjie', 'all_brand',
+           'past_interest_brand', 'past_channel_num', 'past_suborigin_num']
+    
+    x_var = data_all[x_value]
+    
+    bbtree  = joblib.load(r"bbtree.m")
+    
+    y_predict_proba =pd.DataFrame(bbtree.predict_proba(x_var)[:,1],columns = ['建档概率'])
+    data_keep = pd.concat([data_keep , y_predict_proba] , axis = 1)
+    data_keep = get_final(data_keep)
+
+    data_keep_new = data_keep[['线索编号','level_predict']].copy(deep = True)
+    data_keep_new.rename(columns = {'线索编号':'ClueCode','level_predict':'aowenRankCode'} , inplace =True)
+    
+    ford_modeltool.model_perforamce_myself(x_var , y_var , data_all[['identification_code']] ,y_predict_proba )[0]
+    
+    data_keep_new.to_excel('' , index = False)
+    data_keep.to_excel('', index = False)
+
+
+
+
+
+
+
+
+
