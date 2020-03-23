@@ -1,12 +1,11 @@
 
 def model_perforamce_myself( x_va_test , y_va_test , y_va_test_identification,y_predict_proba):
-    import pandas as pd
-
+    
     '''
     将结果打上 建档率 高，中，低三类标签
     建档率：建档人数/总人数
-    提升率 lift值：真实建档/人数占比
-    '''
+    提升率 lift值：真实建档/人数占比'''
+    import pandas as pd
 
     def perforamce_level(x):
         
@@ -91,7 +90,7 @@ def value_chi(data,value_list,jiandang):
     from  scipy.stats import chi2_contingency
 
     '''分类型自变量与分类型因变量之间的相关程度的检验 使用统计量卡方分布 进行列联分析
-      数据量超过四千之后，P值基本就没有用了，在做之前最好抽个样！直接使用每个变量都是显著的'''
+      数据量超过四千之后，P值基本就没有用了，在做之前需要抽样！直接使用每个变量都是显著的'''
 
     len_value = len(value_list)
     token = np.zeros([len_value , 4])
@@ -116,8 +115,6 @@ def value_chi(data,value_list,jiandang):
             #perforamce_all.iloc[i,:]['except'] = expect
             perforamce_except[value] = expect
 
-            
-       
     return perforamce_all  , perforamce_except
 
 
@@ -153,12 +150,4 @@ if __name__ == '__main__':
     
     data_keep_new.to_excel('' , index = False)
     data_keep.to_excel('', index = False)
-
-
-
-
-
-
-
-
 
