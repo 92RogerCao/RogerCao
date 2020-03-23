@@ -26,7 +26,7 @@ def mypickle(data):
     import datetime as dt
     
     datapickle_name = "".join(['ford' , str(dt.datetime.today())[:10].replace("-",'') , '.pickle'])
-    datapickle_path = r'D:\领界\rawdatakeep'
+    datapickle_path = r''
     datapickle_namepath = os.path.join(datapickle_path , datapickle_name)
     with open(datapickle_namepath , 'wb') as f:
         pickle.dump(data ,f)
@@ -38,8 +38,7 @@ def customerdata_from_database(sqlcode):
     import numpy as np
     import pandas as pd
      
-
-    server = "192.168.1.40,1433"    
+    server = ""    
     user = ""
     password = ""
     driver = ''
@@ -77,7 +76,6 @@ def customerdata_from_database(sqlcode):
     createtime_list.sort()
     createtime = str(createtime_list.pop()) ; del createtime_list
     
-    
     _logger_myself(createtime)
     return data_token , createtime
 
@@ -101,7 +99,6 @@ def split_data(data , createtime , half_year_time ):
 def base_process(data):
     import pandas as pd
     
-    
     data = data.merge(forddealer , left_on = '经销商名称' , right_on = '经销商',how = 'left') # 模型特征数据仅从售卖领界的经销商数据中建立
     data.drop(columns = [ '经销商名称','经销商'] , inplace = True)
     data = data.loc[pd.notnull(data['DealerCode'])]
@@ -112,7 +109,7 @@ def base_process(data):
     
     data.rename(columns = db_col_dict , inplace = True)
     data.rename(columns = db_col_dict , inplace = True)
-    data['城市'] = city_province_code(data, '城市', r'D:\领界\support')
+    data['城市'] = city_province_code(data, '城市', r'')
 
     
     data.drop(columns = ['省份'] , inplace =True)
@@ -141,7 +138,6 @@ def _logger_myself(info):
     
     logger.info("Latest CreateTime:"+info)
     
-    pass
 
 def dealerdata_from_database(sqlcode):
     import pyodbc
@@ -230,19 +226,6 @@ def city_province_code(data, city_col_name, support_path):
     data.drop(columns = [name_template] , inplace = True)
     return data[city_keep_name]
 
-def province_map(data,support_path):
-    '''省份名称清洗 ， 该函数没用上'''
-    import pandas as pd
-    import os
-    
-    pro_path = os.path.join(support_path , 'ford说明(20200301).xlsx' )
-    pro = pd.read_excel(pro_path, sheetname='城市到省份')
-    
-    data = data.merge(pro , left_on = 'city_clean', right_on = '城市模板', how = 'left')
-    
-    return data
-
-
 def city_fillna(data):
     '''利用经销商信息填充城市的空缺，该函数没用上'''
     data_city_na = data.loc[data['城市'] == '']
@@ -256,7 +239,7 @@ def var_map(data , col_map_list):
     import pandas as pd
     
     for col_map in col_map_list:
-        col_map_file = pd.read_excel(r'D:\领界\support\ford说明(20200301).xlsx' , 
+        col_map_file = pd.read_excel(r'' , 
             sheetname = col_map)
         col_map_dict = {}
         for i in range(0, col_map_file.shape[0]):
@@ -278,7 +261,6 @@ def var_map(data , col_map_list):
     return data
 
 def get_more_var(data_test ):
-    
     '''
     总共的注册次数：单个mobile的出现次数
     意向品牌的个数：单个mobile中，意向品牌 不为空的个数
@@ -288,8 +270,6 @@ def get_more_var(data_test ):
     过去注册领界的次数：单个mobile中，意向品牌为领界的个数-1
     过去注册非领界的次数（小于最后一个领界）：单个mobile中，根据时间降序排列，计算最后一个 领界 之前的出现次数
     '''
-    
-    
     data_number = data_test[['客户电话号']].copy(deep = True)
     data_number.drop_duplicates(subset = ['客户电话号'] ,inplace = True)
     
@@ -322,7 +302,7 @@ def get_more_var(data_test ):
     data_number = data_number.merge(
         past_reg_nolingjie_num, left_on='客户电话号', right_on='客户电话号', how='inner')
     
-    # 盖帽变量
+    # 变量盖帽
     number_change_col = ['过去注册非领界的次数（小于最后一个领界）', '二级渠道的个数',
                      '意向品牌的个数', '经销商代码的个数', '过去注册领界的次数', '来源渠道的个数', '总共的注册次数']
     
@@ -351,7 +331,6 @@ def reg_lingjie_count(data  ):
     '''
     过去留资领界的次数
     '''
-    
     lingjie = data.loc[data['意向品牌'] == '领界', :].shape[0] - 1
     return lingjie
 
@@ -459,10 +438,8 @@ dealer_p_new.to_excel(r'专题活动0317dealer.xlsx')
 
 workdata.drop(columns = [ '客户电话号','经销商号码'] , inplace = True)
 
-
-    
-os.chdir(r'D:\领界\finalresult')
-workdata.to_excel(r'mlrawdata0319.xlsx',index = False)
+os.chdir(r'')
+workdata.to_excel(r'',index = False)
 
 
 
