@@ -3,7 +3,7 @@
 ## 整体说明
 Git中展示的是本人在唯都工作时期做过的部分项目代码，其中已经删除敏感信息，同时也与简历中项目经验一栏对应。
 
-代码根据对应项目不同，使用SQL与Python完成。其中前者在SQLserver环境中。后者主要使用数据分析与建模的模块，如numpy, pandas, scipy, sklearn等。数据分析项目与报表自动化项目代码产出结果为PPT或Excel文件，这部分可查看：https://pan.baidu.com/s/1O2gmZ_ZEfbEnqSd0911VGw  提取码gk9m
+代码根据对应项目不同，使用SQL或Python完成。其中前者在SQLserver环境中。后者主要使用数据分析与建模的模块，如numpy, pandas, scipy, sklearn等。数据分析项目与报表自动化项目代码产出结果为PPT或Excel文件，这部分可查看：https://pan.baidu.com/s/1O2gmZ_ZEfbEnqSd0911VGw  提取码gk9m
 
 
 ## 对代码的简要说明
