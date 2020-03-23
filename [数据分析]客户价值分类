@@ -1,0 +1,174 @@
+
+all_col = ['OpenId'
+  ,'Mobile'
+  ,'if_fans'
+  ,'if_bind'
+  ,'Cuslevel'
+  ,'CusAttr'
+  ,'xy217apply'
+  ,'xy218apply'
+  ,'xy219apply'
+  ,'xy227apply'
+  ,'xy234apply'
+  ,'xy242apply'
+  ,'xy339apply'
+  ,'xy340apply'
+  ,'xy341apply'
+  ,'xy217exchange'
+  ,'xy218exchange'
+  ,'xy219exchange'
+  ,'xy227exchange'
+  ,'xy234exchange'
+  ,'xy242exchsange'
+  ,'xy339exchange'
+  ,'xy340exchange'
+  ,'xy341exchange'
+  ,'环球探索_申领'
+  ,'免费申领_申领'
+  ,'扫码事件_申领'
+  ,'上报地理位置_其他'
+  ,'我的二维码_其他'
+  ,'我的顾客_其他'
+  ,'门店查询_悦木'
+  ,'品牌故事_悦木'
+  ,'探索全系列_悦木'
+  ,'探索十大明星产品_悦木'
+  ,'悦木之源Origins官方商城_悦木'
+  ,'微客服_福利'
+  ,'我的优惠与活动_福利'
+  ,'预约6感护理_福利',
+  'wx_active',
+  'minip_view']
+
+
+def divide_margins(x):
+    import pandas as pd
+
+    shape_num = x.shape[1]
+    dividenum = x.sum(axis =1)
+    
+    all_all = pd.concat([dividenum ]*shape_num,axis = 1)
+    
+    number = x.values / all_all.values
+    number_df = pd.DataFrame(number , columns = x.columns.tolist())
+    
+    return number_df
+
+if __name__ == '__main__':
+
+    import pandas as pd
+    import os
+    import pickle
+    import pyodbc
+    import sys
+    sys.path.append(r'')
+    import CustomerCluster_Tool
+    pd.set_option('display.max_columns', 50)
+    
+    server = ""    
+    user = ""
+    password = ""
+    driver = ' '
+    database = ''
+    driver = ''
+    
+    conn = pyodbc.connect(driver=driver, server=server, user=user, 
+                          password=password, database=database)
+    cursor =conn.cursor() 
+    
+    cursor.execute("select  * from CustomerCluster") # 用于分析的自建宽表
+    row =cursor.fetchall()
+    
+    conn.close()
+    
+    os.chdir(r'')
+    with open(r'cluster_raw.pickle', 'wb') as f: 
+         pickle.dump(row, f)
+    
+    # 将list形式结果处理成df形式
+    data = row
+    temp = []
+    for single_data in data:
+        single_data_list = list(single_data)
+        temp.append(single_data_list)
+    
+    change = dict(zip(CustomerCluster_Tool.all_col , range(0,40)))
+    df = pd.DataFrame(temp , columns = CustomerCluster_Tool.all_col)
+    df['wxinteract_cal'] = df.iloc[:,24:38].sum(axis = 1)
+    df.shape[0] - df.loc[df['wxinteract_cal'] == 0].shape[0]
+
+    # 对特征进行处理：根据业务逻辑聚合特征、pca处理使特征互相独立、盖帽
+    df_sp = df.loc[df['wxinteract_cal'] != 0].copy(deep = True)
+    df_sp.drop(columns = ['wxinteract_cal'] , inplace = True)
+    
+    df_sp['apply_bahavior_all'] = df_sp.iloc[:,6:15].sum(axis = 1)
+    df_sp['exchange_bahavior_all'] = df_sp.iloc[:,15:24].sum(axis = 1)
+    
+    df_sp['wxapply']  = df_sp.iloc[:,[24,25,26,36,37,39]].sum(axis = 1)
+    df_sp[['apply_bahavior_all' , 'exchange_bahavior_all' ]].corr()
+    df_sp.loc[df_sp['wxapply']>=15] = 15
+    
+    from sklearn.decomposition import PCA
+
+    pca = PCA(n_components=1)
+    pca.fit(df_sp[['apply_bahavior_all' , 'exchange_bahavior_all' ]].fillna(0))
+    pca.components_ 
+    pca.explained_variance_ratio_
+    
+    all_canyu = \
+        pca.transform(df_sp[['apply_bahavior_all' , 'exchange_bahavior_all' ]].fillna(0))
+    
+    all_canyu_df = pd.DataFrame(all_canyu , columns = ['total_apply_exchange'])
+    
+    df_sp = pd.concat([df_sp , all_canyu_df] , axis = 1)
+    
+    test = df_sp.iloc[:,-1].value_counts()
+    
+    other = [
+     '门店查询_悦木',
+     '品牌故事_悦木',
+     '探索全系列_悦木',
+     '探索十大明星产品_悦木',
+     '悦木之源Origins官方商城_悦木',
+     '微客服_福利' ,'wx_active']
+    
+    
+    for i in other:
+        df_sp.loc[df_sp.loc[:,i] >=15 , i] = 15
+    
+    df_sp['know_new'] = df_sp.iloc[:,[30,31,32,33,35,34]].sum(axis = 1)
+    df_sp[['know_new','total_apply_exchange']].corr()
+    
+    for i in ['know_new']:
+        df_sp.loc[df_sp.loc[:,i] >=15 , i] = 15
+        
+    
+    from sklearn.cluster import KMeans
+    
+    # 建立聚类结果
+    cluster_test = KMeans(n_clusters=3, random_state=1)
+    answer = cluster_test.fit(df_sp.loc[:,['total_apply_exchange','know_new']].fillna(0))
+    answer.cluster_centers_ 
+    answer.inertia_
+    answer.labels_
+    lab = pd.DataFrame(answer.labels_ , columns = ['lab_x'])
+    df_sp = pd.concat([df_sp,lab] , axis = 1)
+    
+    # 查看聚类结果的效果
+    df_val = df_sp[['if_fans','if_bind','Cuslevel','CusAttr' , 'lab_x','OpenId']]
+    df_val['lab_x'].value_counts()
+    test_pivot = pd.pivot_table(df_val , index = ['lab_x'],columns =['if_fans'],values = ['OpenId'],\
+             aggfunc = 'count')
+    test_pivot =pd.pivot_table(df_val , index = ['if_fans'],columns =['Cuslevel'],values = ['OpenId'],\
+             aggfunc = 'count')
+    all_use = test_pivot.sum(axis =1)
+    all_all = pd.concat([all_use]*2,axis = 1)
+    test_pivot.values / all_all.values
+    
+    df_keep = df_sp.loc[:,['apply_new','know_new','lab_x','if_fans',\
+                                       'if_bind','Cuslevel','CusAttr','OpenId']].copy(deep = True)
+    
+    # 固化结果
+    with open('rusultone.pickle' , 'wb') as f:
+        pickle.dump(df_keep,f)
+    
