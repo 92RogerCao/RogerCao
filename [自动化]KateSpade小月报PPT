@@ -18,7 +18,7 @@ from pptx.enum.chart import XL_CHART_TYPE
 from pptx.chart.data import ChartData
 
 class ks_monthlyreport(object):
-    '''以后的改进方案，
+    '''改进方案，
     1. 作图相关的代码按照是否需要存储数据分为两个函数；文本框修饰类代码应该处理成函数。
     
     2. 可以在 __init__函数中使用sql将数据获取，相关对象不需要转换成 对象。
@@ -57,7 +57,6 @@ class ks_monthlyreport(object):
         
 
     def run_sql(self):
-        
         def _sql_get_from_db(sql , cursor , colname_list):
             
             cursor.execute(sql)
