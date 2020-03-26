@@ -1,6 +1,6 @@
 
 CREATE TABLE dbo.ORApply(
-User_mob INT NOT NULL
+Mobile INT NOT NULL
 XY218ApplyStatus INT NOT NULL default(0)
 XY218ExchangeStatus INT NOT NULL default(0)
 XY218exchangeshop INT NOT NULL default(0)
@@ -13,6 +13,12 @@ interact_number INT NOT NULL default(0)
 
 PRIMARY KEY(User_mob)
 )
+
+INSERT INTO dbo.ORApply(
+Mobile)
+SELECT DISTINCT Mobile
+FROM WXCampaignParticipation
+WHERE WXCampaignId IN ('218', ....)
 
 
 
@@ -37,7 +43,6 @@ END
 GO
 
 EXEC dbo.GetNTF @camp_info = '218' , @camp_starttime = '' , @camp_endtime = ''
-
 
 --- 刷上三个月内的（与公众号的）互动数
 SELECT FromUserName , count(1) as interact_number 
