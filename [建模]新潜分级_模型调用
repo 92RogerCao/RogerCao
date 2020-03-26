@@ -90,7 +90,7 @@ def value_chi(data,value_list,jiandang):
     from  scipy.stats import chi2_contingency
 
     '''分类型自变量与分类型因变量之间的相关程度的检验 使用统计量卡方分布 进行列联分析
-      数据量超过四千之后，P值基本就没有用了，在做之前需要抽样！直接使用每个变量都是显著的'''
+      数据量超过四千之后，P值就没有用了，在做之前需要抽样！直接使用每个变量都是显著的'''
 
     len_value = len(value_list)
     token = np.zeros([len_value , 4])
@@ -118,6 +118,36 @@ def value_chi(data,value_list,jiandang):
     return perforamce_all  , perforamce_except
 
 
+def resultback_todb(pro_todb):
+    import pyodbc
+    import numpy as np
+    
+    col_need = ['线索编号','level_predict']
+
+    pro_todb_new = pro_todb[col_need].copy(deep = True)
+    pro_todb_new.rename(columns = {'线索编号':'ClueCode','level_predict':'aowenRankCode'} , inplace =True)
+    pro_todb_new['baiduRankCode'] = 'Z'
+    pro_todb_new['BatchId'] = 0
+    pro_todb_new['Archived'] = 1
+    pro_todb_new['Uploaded'] = 1
+    pro_todb_new_array  = np.array(pro_todb_new).tolist()
+    
+    server = ""    
+    user = ""
+    password = ""
+    driver = ''
+    database = ''
+    driver = ''
+ 
+    conn = pyodbc.connect(driver=driver, server=server, user=user, password=password, database=database)
+    cursor =conn.cursor()
+    
+    cursor.execute("insert into BusFordDataResult(clueCode,aowenRankCode,baiduRankCode,BatchId,Archived,Uploaded) values ('{0}' , '{1}', '{2}', '{3}', '{4}', '{5}')").format(pro_todb_new_array[0],pro_todb_new_array[1],pro_todb_new_array[2],data_keep_new_tb[3],pro_todb_new_array[4],pro_todb_new_array[5])
+    cursor.commit()
+    conn.close()
+    
+
+
 if __name__ == '__main__':
 
     import pandas as pd 
@@ -129,25 +159,40 @@ if __name__ == '__main__':
     data_all = pd.read_excel(r'')
     
     data_all.rename(columns = rename_dict , inplace = True)
-    data_keep = data_all.copy(deep = True)
+    data_new_channel = data_all.loc[data_all['channel'].str.contains([])]
+    data_all_nonewchannel = data_all.loc[~data_all['channel'].str.contains([])]
+    
+    data_keep = data_all_nonewchannel.copy(deep = True)
     
     x_value = ['dealer_performance', 'city', 'channel', 'leads_kind', 'province',
            'dealer_num', 'past_lingjie_num', 'past_notlingjie', 'all_brand',
            'past_interest_brand', 'past_channel_num', 'past_suborigin_num']
     
-    x_var = data_all[x_value]
+    x_var = data_all_nonewchannel[x_value]
     
-    bbtree  = joblib.load(r"bbtree.m")
+    
+    bbtree  = joblib.load(r"LINGJIE_tree.m")
+    y_predict_proba =pd.DataFrame(bbtree.predict_proba(x_var)[:,1],columns = ['建档概率'])
+    data_keep = pd.concat([data_keep , y_predict_proba] , axis = 1)
+    data_keep = get_final(data_keep)
+    data_keep_new = data_keep[['线索编号','level_predict']].copy(deep = True)
+    data_keep_new.rename(columns = {'线索编号':'ClueCode','level_predict':'aowenRankCode'} , inplace =True)
+    prod_data_nonewchannel = data_keep_new.copy(deep = True)
+    
+    # 调用决策树模型对重点渠道来源的新潜单独分级，每次客户反馈建档结果，均需重新调参。
+    # 该方案还在试运行，需调用model_perforamce_myself 查看建档率
+    x_var = data_new_channel[x_value]
+    bbtree  = joblib.load(r"LINGJIE_tree_two.m")
     
     y_predict_proba =pd.DataFrame(bbtree.predict_proba(x_var)[:,1],columns = ['建档概率'])
     data_keep = pd.concat([data_keep , y_predict_proba] , axis = 1)
     data_keep = get_final(data_keep)
-
     data_keep_new = data_keep[['线索编号','level_predict']].copy(deep = True)
     data_keep_new.rename(columns = {'线索编号':'ClueCode','level_predict':'aowenRankCode'} , inplace =True)
+    prod_data_newchannel = data_keep_new.copy(deep = True)
     
-    ford_modeltool.model_perforamce_myself(x_var , y_var , data_all[['identification_code']] ,y_predict_proba )[0]
+    # 查看结果，回传数据至数据库
+    all_prod = pd.concat([prod_data_nonewchannel , prod_data_newchannel] , axis = 0)
+    all_prod.to_excel('', index = False)
+    resultback_todb(all_prod)
     
-    data_keep_new.to_excel('' , index = False)
-    data_keep.to_excel('', index = False)
-
