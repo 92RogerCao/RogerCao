@@ -1,8 +1,58 @@
 
+CREATE TABLE dbo.ORApply(
+User_mob INT NOT NULL
+XY218ApplyStatus INT NOT NULL default(0)
+XY218ExchangeStatus INT NOT NULL default(0)
+XY218exchangeshop INT NOT NULL default(0)
+XY218ApplySource INT NOT NULL default(0)
+-- 仅做演示，重复逻辑相关字段已经删除，下同
+
+XY218ApplySourceName varchar(500) not null default('') ----申领渠道的来源与种类
+XY218ApplySourceClassify varchar(500) not null default('')
+interact_number INT NOT NULL default(0)
+
+PRIMARY KEY(User_mob)
+)
 
 
 
 
+--- 刷上218的status , 核销状态，来源渠道sourceid,核销门店
+UPDATE o SET o.XY218ApplyStatus=1,o.XY218ExchangeStatus= (CASE WHEN x.ParticipationStatus = 2 THEN 1  ELSE 0 END),
+o.XY218ApplySource=x.SourceId ,o.xy218exchangeshop = isnull(y.StoreCode,0)
+ FROM dbo.ORApply o JOIN OriginsWeChat.dbo.WXCampaignParticipation x WITH(NOLOCK ) on o.Mobile =x.Mobile and x.WXCampaignId = '218' 
+ left JOIN OriginsWeChat.dbo.WXShop y ON y.StoreId = x.ExchangeShop
+
+---- 刷上ntf活动
+CREATE PROCEDURE GetNTF
+@camp_info varchar(3), 
+@camp_starttime varchar(10),
+@camp_endtime varchar(10)
+AS
+BEGIN
+UPDATE o SET o.Ntf= @camp_info
+ FROM dbo.ORApply o JOIN OriginsWeChat.dbo.SysUserInfo x WITH(NOLOCK ) ON 
+ o.Mobile = x.Mobile  and x.XYApplyTime >= @camp_starttime and x.XYApplyTime< @camp_endtime
+END
+GO
+
+EXEC dbo.GetNTF @camp_info = '218' , @camp_starttime = '' , @camp_endtime = ''
 
 
+--- 刷上三个月内的（与公众号的）互动数
+SELECT FromUserName , count(1) as interact_number 
+into #1
+FROM OriginsTableBak.dbo.WXMessageRecordbak
+WHERE CreateTime >='2019-03-06' AND ToUserName = 'gh_cb5799eb47d2' and Event != 'subscribe' and Event != 'unsubscribe'
+GROUP BY FromUserName
 
+UPDATE o SET o.WX_interact= y.interact_number
+ FROM dbo.ORApply o JOIN #1 y
+ON  y.FromUserName = o.OpenId  
+
+---刷上是否微信关注
+UPDATE o SET o.WX_follow=y.Subscribe
+ FROM dbo.ORApply o WITH(NOLOCK ) JOIN OriginsWeChat.dbo.WXFans y
+ON o.OpenId =y.OpenId  and y.Subscribe = 1
+
+----- 后续新增活动种类与用户信息代码类似，不在展示
