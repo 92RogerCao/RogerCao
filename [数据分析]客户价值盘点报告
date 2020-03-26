@@ -1,4 +1,4 @@
-
+--- 创建宽表
 CREATE TABLE dbo.ORApply(
 Mobile INT NOT NULL
 XY218ApplyStatus INT NOT NULL default(0)
@@ -19,9 +19,6 @@ Mobile)
 SELECT DISTINCT Mobile
 FROM WXCampaignParticipation
 WHERE WXCampaignId IN ('218', ....)
-
-
-
 
 --- 刷上218的status , 核销状态，来源渠道sourceid,核销门店
 UPDATE o SET o.XY218ApplyStatus=1,o.XY218ExchangeStatus= (CASE WHEN x.ParticipationStatus = 2 THEN 1  ELSE 0 END),
@@ -61,3 +58,157 @@ UPDATE o SET o.WX_follow=y.Subscribe
 ON o.OpenId =y.OpenId  and y.Subscribe = 1
 
 ----- 后续新增活动种类与用户信息代码类似，不在展示
+
+----------------------------------------------------------------------------------
+--- 拉取数据
+
+-- 2016-2019财年的累计关注 
+select count(FromUserName) from ORIGINSTABLEBAK.DBO.WXMessageRecordBAK 
+where event = 'subscribe'
+and CreateTime >= '2016-01-01' and CreateTime<'2019-06-01'
+
+SELECT COUNT(1) FROM WXFans WHERE Subscribe = 1
+
+-- 2018财年的累计关注 
+select count(distinct FromUserName) from ORIGINSTABLEBAK.DBO.WXMessageRecordBAK 
+where event = 'subscribe'
+and CreateTime >= '2017-07-01' and CreateTime<'2018-07-01'
+
+-- 2018财年净关注 
+SELECT FromUserName,
+row_number()over(PARTITION BY FromUserName ORDER BY CreateTime DESC) as ranknumber , CreateTime, event
+into #2
+FROM ORIGINSTABLEBAK.DBO.WXMessageRecordBAK
+where CreateTime >= '2017-07-01' and CreateTime<'2018-07-01' and event in ('subscribe','unsubscribe')
+
+SELECT count(distinct FROMUSERNAME) FROM #2 WHERE ranknumber = 1 and event = 'subscribe'
+
+----- 2018年绑定情况 
+select count(distinct FromUserName) from ORIGINSTABLEBAK.DBO.WXMessageRecordBAK as a inner join OriginsWeChat.dbo.SysUserInfo as b 
+on a.FromUserName = b.OpenId and a.CreateTime >= '2017-07-01' and a.CreateTime<'2018-07-01' and a.Event = 'subscribe' 
+and b.BindTime  >= '2017-07-01' and b.BindTime <'2018-07-01'
+ 
+----- 2019年绑定情况 
+select count(distinct FromUserName) from ORIGINSTABLEBAK.DBO.WXMessageRecordBAK as a inner join OriginsWeChat.dbo.SysUserInfo as b 
+on a.FromUserName = b.OpenId and a.CreateTime >= '2018-07-01' and a.CreateTime<'2019-06-01' and a.Event = 'subscribe' 
+and b.BindTime  >= '2018-07-01' and b.BindTime <'2019-06-01'
+
+select count(distinct FromUserName) from ORIGINSTABLEBAK.DBO.WXMessageRecordBAK as a inner join OriginsWeChat.dbo.SysUserInfo as b 
+on a.FromUserName = b.OpenId and a.CreateTime >= '2016-01-01' and a.CreateTime<'2019-06-01' and a.Event = 'subscribe' 
+and b.BindTime  >= '2016-01-01' and b.BindTime <'2019-06-01'
+
+---------------- sheet 2
+-----参加活动次数 与微信关注与活跃情况
+SELECT (XY217ApplyStatus+ XY218ApplyStatus + XY219ApplyStatus +XY227ApplyStatus +
+XY234ApplyStatus +XY242ApplyStatus + XY339ApplyStatus ) , count( DISTINCT Mobile)	AS '总人数' , SUM(SubscribeStatus) AS '关注数', 
+sum(case when WX_interact >=3 then 1 else 0 end) as '活跃人数'
+FROM ORApply 
+GROUP BY ( XY217ApplyStatus+XY218ApplyStatus + XY219ApplyStatus +XY227ApplyStatus +
+XY234ApplyStatus +XY242ApplyStatus + XY339ApplyStatus )
+order by ( XY217ApplyStatus+XY218ApplyStatus + XY219ApplyStatus +XY227ApplyStatus +
+XY234ApplyStatus +XY242ApplyStatus + XY339ApplyStatus)  
+
+select count(mobile) from orapply where  SubscribeStatus = 1
+
+-- 四大渠道的子渠道申领和核销等情况
+SELECT  origin_channel , sum("参与人数") as '汇总参与人数', sum("关注人数")as '汇总关注人数', sum("核销人数") AS '汇总核销人数'
+from(SELECT '217' as 'camp',B.origin_channel ,COUNT(A.Mobile) AS '参与人数' , SUM(A.SubscribeStatus)AS '关注人数' , SUM(A.XY218ExchangeStatus)  AS '核销人数'
+FROM ORapply as A join channelsplitczr0611 AS B on A.XY217ApplySourceName = B.origin_channel and A.XY218ApplyStatus =1
+WHERE B.classification_channel = '朋友圈'
+group by B.origin_channel
+UNION
+SELECT '218' as 'camp',B.origin_channel ,COUNT(A.Mobile) AS '参与人数' , SUM(A.SubscribeStatus)AS '关注人数' , SUM(A.XY218ExchangeStatus)  AS '核销人数'
+FROM ORapply as A join channelsplitczr0611 AS B on A.XY218ApplySourceName = B.origin_channel and A.XY218ApplyStatus =1
+WHERE B.classification_channel = '朋友圈'
+group by B.origin_channel
+order by "汇总参与人数" DESC
+
+
+---- 标签情况
+SELECT B.CusLevel, count(a.mobile)
+FROM ORAPPLY AS A INNER JOIN OriginsWeChat.dbo.SysUserInfo AS B ON A.Mobile = B.Mobile
+GROUP BY B.CusLevel
+
+select count(mobile) from OriginsWeChat.dbo.SysUserInfo where CusLevel IN ('Active','HistoryUser','Lapse')
+
+------ mobile端申领，核销，关注，活跃
+select '217',b.Remark , COUNT(A.Mobile)AS '参与人数' , SUM(A.SubscribeStatus)AS '关注人数'  , SUM(A.XY217ExchangeStatus)AS '核销人数',
+sum(case when a.WX_interact >=3 then 1 else 0 end) as '活跃人数'
+ from orapply as a inner join OriginsWeChat.dbo.WXSource as b on a.XY217ApplySource = b.Id
+where b.Remark in ('DSP Mobile','MOB','KW Mobile')
+group by b.Remark
+union
+select '218',b.Remark , COUNT(A.Mobile)AS '参与人数' , SUM(A.SubscribeStatus)AS '关注人数'  , SUM(A.XY218ExchangeStatus)AS '核销人数',
+sum(case when a.WX_interact >=3 then 1 else 0 end) as '活跃人数'
+ from orapply as a inner join OriginsWeChat.dbo.WXSource as b on a.XY218ApplySource = b.Id
+where b.Remark in ('DSP Mobile','MOB','KW Mobile')
+group by b.Remark
+
+
+----2019财年的购买 
+
+SELECT count(a.Mobile) FROM ORAPPLY AS A INNER JOIN OriginsWeChat.dbo.SysUserInfo AS B ON A.Mobile = B.Mobile 
+WHERE B.CusLevel in ('Active','HistoryUser','Lapse')
+
+SELECT b.CusLevel , count(a.Mobile) FROM ORAPPLY AS A INNER JOIN OriginsWeChat.dbo.SysUserInfo AS B ON A.Mobile = B.Mobile 
+WHERE B.CusLevel in ('Active','HistoryUser','Lapse')
+group by B.CusLevel
+
+SELECT B.CusAttr , count(a.Mobile) 
+FROM ORAPPLY AS A INNER JOIN OriginsWeChat.dbo.SysUserInfo AS B ON A.Mobile = B.Mobile 
+WHERE B.CusLevel in ('Active')
+group by B.CusAttr
+
+-------------------- SHEET 3
+
+SELECT  origin_channel , sum("参与人数") as '汇总参与人数', sum("关注人数")as '汇总关注人数', sum("核销人数") AS '汇总核销人数'
+from(SELECT '218' as 'camp',B.origin_channel ,COUNT(A.Mobile) AS '参与人数' , SUM(A.SubscribeStatus)AS '关注人数' , SUM(A.XY218ExchangeStatus)  AS '核销人数'
+FROM ORapply as A join channelsplit_czr AS B on A.XY218ApplySourceName = B.origin_channel and A.XY218ApplyStatus =1
+WHERE B.classification_channel = '公众号'
+group by B.origin_channel
+UNION
+SELECT '219'as 'camp',B.origin_channel ,COUNT(A.Mobile)AS '参与人数' , SUM(A.SubscribeStatus) AS '关注人数' , SUM(A.XY219ExchangeStatus)AS '核销人数'
+FROM ORapply as A join channelsplit_czr AS B on A.XY219ApplySourceName = B.origin_channel and A.XY219ApplyStatus =1
+WHERE B.classification_channel = '公众号'
+group by B.origin_channel 
+order by "汇总参与人数" DESC
+
+
+-- 参加过活动次数
+
+SELECT (XY218ApplyStatus + XY219ApplyStatus +XY227ApplyStatus +
+XY234ApplyStatus +XY242ApplyStatus + XY339ApplyStatus ) , count( DISTINCT Mobile)	AS '总人数' , SUM(SubscribeStatus) AS '关注数', 
+sum(case when WX_interact >=3 then 1 else 0 end) as '活跃人数'
+FROM ORApply 
+GROUP BY (XY218ApplyStatus + XY219ApplyStatus +XY227ApplyStatus +
+XY234ApplyStatus +XY242ApplyStatus + XY339ApplyStatus )
+order by (XY218ApplyStatus + XY219ApplyStatus +XY227ApplyStatus +
+XY234ApplyStatus +XY242ApplyStatus + XY339ApplyStatus )  
+
+
+SELECT SUM(XY218ApplyStatus) AS '218', SUM(XY219ApplyStatus) AS '219', SUM(XY227ApplyStatus) AS '227',
+SUM(XY234ApplyStatus) AS '234',SUM(XY242ApplyStatus) AS '242',SUM(XY339ApplyStatus) AS '339'
+FROM ORApply 
+
+SELECT XY218ApplySourceName , COUNT(1) FROM ORApply WHERE  XY218ApplySourceName != '' GROUP BY XY218ApplySourceName
+SELECT XY219ApplySourceName, COUNT(1) FROM ORApply WHERE  XY219ApplySourceName != '' GROUP BY XY219ApplySourceName
+
+SELECT COUNT(DISTINCT MOBILE)
+FROM ORApply
+WHERE XY218ApplyStatus = 1 AND XY219ApplyStatus != 1 
+and XY227ApplyStatus !=1 and
+XY234ApplyStatus !=1 and
+XY242ApplyStatus !=1 and
+XY339ApplyStatus !=1
+
+--------购买情况 PPT SHEET 4
+
+SELECT  count(Mobile) FROM ORApply WHERE  XY218ExchangeStatus = 1 AND Mobile in (
+SELECT Mobile from OriginsWeChat.dbo.SysUserInfo WHERE CreateTime >='2018-08-15' 
+and CreateTime <'2018-10-20' and CusLevel in ('Active','HistoryUser','Lapse'))
+
+SELECT B.Cusattr , sum(case when B.CusLevel in ('Active') then 1 else 0 end ) as 'Active人数',
+sum(case when B.CusLevel in ('Lapse') then 1 else 0 end ) as 'lapse人数'
+FROM ORApply as A  INNER JOIN  OriginsWeChat.dbo.SysUserInfo AS B ON A.Mobile = B.Mobile 
+ AND A.XY218ExchangeStatus = 1 AND B.CusLevel in ('Active','Lapse')
+GROUP BY B.Cusattr
