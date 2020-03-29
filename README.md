@@ -31,7 +31,7 @@ Git中代码对应的数据建模与自动化报告代码，前者没有对应�
 ![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/ppt1.png)
 关于微信公众号与会员数的总体数据查看
 
-图二
+![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT2.png)
 这张PPT用于区分用户价值，且已经按照分析结果，将用户按不同指标进行拆解。
 
 其中将客户分别按照申领次数与是否购买分别切分，随后按照已购买客户与潜客的各自行为或标签进行进一步拆解以形成体系，如下图：
@@ -41,13 +41,13 @@ Git中代码对应的数据建模与自动化报告代码，前者没有对应�
 | 未购买 | 按照行为进一步拆解 |
 
 
-图三
+![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT3.png)
 该PPT是上图中关于小样申领次数的进一步分析，查看用户交叉申领的指标情况。
 
 
 
 
-图四
+![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT4.png)
 同样是图二的细分，查看每个活动的转化漏斗。
 
 
