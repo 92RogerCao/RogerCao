@@ -28,7 +28,7 @@ Git中代码对应的数据建模与自动化报告代码，前者没有对应�
 + 申领&核销：常规举办的活动就是小样申领，申领有线上线下等多个渠道，核销仅能在线下门店核销
 + 已购买：已购买人数是Active，lapse，history User三类人的总和，其中Active又可分进一步为HV/MV/LV三类
 
-图一
+![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/ppt1.png)
 关于微信公众号与会员数的总体数据查看
 
 图二
