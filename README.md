@@ -40,6 +40,7 @@ PPT用于区分用户价值，且已经按照分析结果，将用户按不同�
 |----|----|
 | 已购买 | 按照标签进一步拆解 |
 | 未购买 | 按照行为进一步拆解 |
+
 ![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT2.png)
 
 #### 报告分页展示：PPT3
