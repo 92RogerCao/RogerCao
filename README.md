@@ -27,15 +27,18 @@ Git中代码对应的数据建模与自动化报告代码，前者没有对应�
 
 
 ### 客户价值盘点报告
+客户作为CRM部门，主要的业务目的是提高品牌知名度并吸引用户申领与核销小样，将流量引导至品牌公众号。故报告也是基于此业务分析、整理数据并出具。以下是每一页PPT逻辑的简要说明
 
 
-#### 客户需求&报告展示内容说明
 
 
-
+#### 报告分页展示：PPT1
 关于微信公众号与会员数的总体数据查看
 
-这张PPT用于区分用户价值，且已经按照分析结果，将用户按不同指标进行拆解。
+![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/ppt1.png)
+
+#### 报告分页展示：PPT2
+PPT用于区分用户价值，且已经按照分析结果，将用户按不同指标进行拆解。
 
 其中将客户分别按照申领次数与是否购买分别切分，随后按照已购买客户与潜客的各自行为或标签进行进一步拆解以形成体系，如下图：
 | 按是否购买划分 | 按申领次数划分 |
@@ -43,28 +46,22 @@ Git中代码对应的数据建模与自动化报告代码，前者没有对应�
 | 已购买 | 按照标签进一步拆解 |
 | 未购买 | 按照行为进一步拆解 |
 
-该PPT是上图中关于小样申领次数的进一步分析，查看用户交叉申领的指标情况。
-
-同样是图二的细分，查看每个活动的转化漏斗。
-
-
-
-#### 报告分页展示
-
-PPT1
-![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/ppt1.png)
-PPT2
 ![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT2.png)
-PPT3
-![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT3.png)
-PPT4
-![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT4.png)
 
+#### 报告分页展示：PPT3
+PPT2中关于小样申领次数的进一步分析，查看用户交叉申领的指标情况。
+
+![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT3.png)
+
+#### 报告分页展示：PPT4
+PPT2的细分，查看每个活动的转化漏斗。
+
+![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/PPT4.png)
 
 
 ### 延迟推送效果报告
 
-
+![](https://github.com/92RogerCao/RogerCao/blob/master/photofile/report48.png)
 
 
 
