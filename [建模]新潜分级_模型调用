@@ -2,9 +2,10 @@
 def model_perforamce_myself( x_va_test , y_va_test , y_va_test_identification,y_predict_proba):
     
     '''
-    将结果打上 建档率 高，中，低三类标签
+    将结果打上 建档率 高，中，低三类标签 
     建档率：建档人数/总人数
-    提升率 lift值：真实建档/人数占比'''
+    提升率 lift值：真实建档/人数占比
+    '''
     import pandas as pd
 
     def perforamce_level(x):
