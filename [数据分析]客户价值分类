@@ -53,7 +53,7 @@ def divide_margins(x):
     number_df = pd.DataFrame(number , columns = x.columns.tolist())
     
     return number_df
-
+ 
 if __name__ == '__main__':
 
     import pandas as pd
