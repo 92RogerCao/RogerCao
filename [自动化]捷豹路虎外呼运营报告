@@ -50,7 +50,7 @@ def RawData_Process(allfilelist):
         
         daily_group_testinfo = daily_raw.groupby(['发送外呼日期_apply' , '活动ID', '活动名称','潜客来源_apply']).apply(lambda x :\
                                                 _get_test_info(x['姓名'],test_list))
-        daily_group_testinfo = daily_group_testinfo.reset_index(level = [0,1,2,3])
+        daily_group_testinfo = daily_group_testinfo.reset_index(level = [0,1,2,3]) 
         daily_group_testinfo.rename(columns = {0:'无需外呼数量(测试数据）'}, inplace = True)
         daily_group_testinfo['timecamp_key'] = daily_group_testinfo['发送外呼日期_apply'] + daily_group_testinfo['活动ID'] + \
                             daily_group_testinfo['潜客来源_apply']
