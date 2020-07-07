@@ -11,7 +11,7 @@ from dateutil.relativedelta import relativedelta
 from decimal import *
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-
+ 
 driver = ''
 server = ''
 user = ''
