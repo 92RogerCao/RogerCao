@@ -9,7 +9,7 @@ import datetime as dt
 import copy
 from numpy import zeros
 import re
-            
+             
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
