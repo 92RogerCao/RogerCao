@@ -7,7 +7,7 @@ campinfo_dict = {'raw_data_path':r'',
             'col_myself':'',
             'duplicate_daily':r''}
  
-
+ 
 col_myself = {'BATCH_NO_ACC':[''] , 'BATCH_NO_LEADS':['']} 
 
 datecol_dict_add = {} 
