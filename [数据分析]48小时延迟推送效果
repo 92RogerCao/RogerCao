@@ -1,4 +1,4 @@
-
+ 
 select FromUserName , event , CreateTime
 into #10
 from OriginsTableBak.dbo.WXMessageRecordBak 
