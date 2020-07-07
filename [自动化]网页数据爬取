@@ -1,0 +1,99 @@
+# -*- coding: gbk -*-
+import time
+import os
+from selenium import webdriver
+from selenium.common.exceptions import NoSuchElementException
+import re
+
+path ="" #存储路径
+
+startdate = ''
+enddate=''
+
+
+reportlist = {"":'XXX.xlsx'} # key为需要搜索的网页
+
+# 环境配置&模拟点击
+chromedriver = "C:\Program Files (x86)\Google\Chrome\Application"
+os.environ["webdriver.ie.driver"] = chromedriver
+options = webdriver.ChromeOptions()
+'''prefs = {'profile.default_content_settings.popups': 0, 'download.default_directory':path}
+options.add_experimental_option('prefs', prefs)'''
+driver = webdriver.Chrome(options=options)
+
+driver.get('')  # 打开网站
+
+
+username = ""  
+password = ""  
+
+driver.find_element_by_id('username').click()  
+driver.find_element_by_id('username').clear()  
+driver.find_element_by_id('username').send_keys(username)  
+
+driver.find_element_by_id('password').click()  
+driver.find_element_by_id('password').clear()  
+driver.find_element_by_id('password').send_keys(password)  
+
+
+driver.find_element_by_id('Login').click() 
+
+
+
+def is_element_exist(name, by_class):
+    if by_class:
+        try:  # 通过class_name查找元素
+            driver.find_element_by_name(name)
+            return True
+        except NoSuchElementException:
+            return False
+    else:
+        try:  # 通过xpath查找元素
+            driver.find_element_by_xpath(name)
+            return True
+        except NoSuchElementException:
+            return False
+
+
+for reportweb in reportlist.keys():
+    filename = reportlist[reportweb]
+    driver.get(reportweb)
+    input_box = driver.find_element_by_id('colDt_s')
+    try:
+
+        input_box.clear()
+        input_box.send_keys(startdate)
+
+    except Exception as e:
+        print('fail')
+
+    input_box = driver.find_element_by_id('colDt_e')
+    try:
+
+        input_box.clear()
+        input_box.send_keys(enddate)
+
+    except Exception as e:
+        print('fail')
+
+    driver.find_element_by_name('run').click()
+    time.sleep(3)
+    driver.find_element_by_name('csvsetup').click()
+    time.sleep(3)
+    while(1):
+        time.sleep(3)
+        if is_element_exist('export', True):
+            driver.find_element_by_name("export").click()
+            time.sleep(10)
+            break
+
+    filelist=os.listdir(path)
+    for i in filelist:
+        # 判断该路径下的文件是否为report开头
+        if i.startswith('report'):
+            src=os.path.join(os.path.abspath(path),i)
+            # 重命名
+            dst=os.path.join(os.path.abspath(path),filename)
+            # 执行操作
+            os.rename(src,dst)
+
