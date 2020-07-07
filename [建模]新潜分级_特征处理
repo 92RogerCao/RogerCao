@@ -315,7 +315,7 @@ def get_more_var(data_test ):
 
 def value_count(data , col):
     '''
-    留资次数，如客户在X个经销商分别留资
+    留资次数，如客户在X个经销商分别留资 
     '''
 
     value = data[col].unique().tolist()
